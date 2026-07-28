@@ -116,11 +116,21 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
             : new io.github.dconneely.incognito.core.InMemoryKeyTranslationStore();
 
         PipelineContext context = new io.github.dconneely.incognito.core.DefaultPipelineContext(
-            source, target, resolvedKeyStore, null, alterEgo, policy,
+            source, target, resolvedKeyStore,
+            new io.github.dconneely.incognito.core.InMemoryAttributeCascadeStore(),
+            alterEgo, policy,
             new java.util.concurrent.ConcurrentHashMap<>()
         );
 
-        return new io.github.dconneely.incognito.core.DefaultIncognitoPipeline(context, stages, this.salt);
+        // If the caller supplied no stages, assemble the standard v1.0 pipeline so the
+        // documented `builder()...build().execute()` form actually anonymises.
+        List<PipelineStage> resolvedStages = stages.isEmpty()
+            ? List.of(new io.github.dconneely.incognito.core.SchemaDiscoveryStage(),
+                      new io.github.dconneely.incognito.core.TableTransformLoadStage(),
+                      new io.github.dconneely.incognito.core.VerificationStage())
+            : stages;
+
+        return new io.github.dconneely.incognito.core.DefaultIncognitoPipeline(context, resolvedStages, this.salt);
     }
 
     // The three salt modes are mutually exclusive (SPEC §5.1).

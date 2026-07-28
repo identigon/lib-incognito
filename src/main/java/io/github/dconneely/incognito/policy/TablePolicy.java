@@ -68,7 +68,7 @@ public record TablePolicy(
             return column(ColumnPolicy.builder(columnName).role(role).quasiIdStrategy(strategy).build());
         }
 
-        /** Declares a high-cardinality SENSITIVE column redacted via clear / mask / constant (SPEC §4.1). */
+        /** Declares a {@code distinguishing: true} SENSITIVE column redacted via clear / mask / constant (SPEC §2.2/§4.1). */
         public Builder column(String columnName, ColumnRole role, RedactionStrategy strategy) {
             return column(ColumnPolicy.builder(columnName).role(role).redactionStrategy(strategy).build());
         }

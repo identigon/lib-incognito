@@ -39,8 +39,13 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher") // required by Gradle 9.x test runner
     testImplementation("com.h2database:h2:2.2.224")
 
-    // Testcontainers for PostgreSQL integration testing (v1.0 Tier-1 engine)
-    testImplementation(platform("org.testcontainers:testcontainers-bom:1.19.7"))
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:postgresql")
+    // Testcontainers for PostgreSQL integration testing (v1.0 Tier-1 engine).
+    // 2.x is required for Docker Engine 29.x (older docker-java probes API 1.32, which the daemon
+    // rejects; needs ≥1.40). NOTE 2.x renamed the module artifacts (testcontainers-* prefix) and
+    // moved PostgreSQLContainer to package org.testcontainers.postgresql.
+    testImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    // PostgreSQL JDBC driver — the walking-skeleton test connects via raw DriverManager.
+    testRuntimeOnly("org.postgresql:postgresql:42.7.3")
 }

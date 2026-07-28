@@ -17,7 +17,8 @@ public class SchemaInspector {
         Map<String, String> foreignKeys, // fkColumn -> parentTable.parentColumn
         List<String> uniqueCandidateKeys,
         List<String> columns,
-        List<String> generatedColumns
+        List<String> generatedColumns,
+        List<String> identityColumns   // IS_AUTOINCREMENT=YES — inserted with OVERRIDING SYSTEM VALUE
     ) {}
 
     /**
@@ -41,6 +42,7 @@ public class SchemaInspector {
                     
                     List<String> columns = new java.util.ArrayList<>();
                     List<String> generatedColumns = new java.util.ArrayList<>();
+                    List<String> identityColumns = new java.util.ArrayList<>();
                     List<String> primaryKeyColumns = new java.util.ArrayList<>();
                     Map<String, String> foreignKeys = new java.util.HashMap<>();
                     List<String> uniqueCandidateKeys = new java.util.ArrayList<>();
@@ -63,8 +65,11 @@ public class SchemaInspector {
                             
                             boolean isAutoInc = "YES".equalsIgnoreCase(isAutoIncrement);
                             boolean isGenerated = "YES".equalsIgnoreCase(isGeneratedColumn);
-                            
-                            if (isGenerated && !(isAutoInc && primaryKeyColumns.contains(colName))) {
+
+                            if (isAutoInc) {
+                                identityColumns.add(colName);
+                            }
+                            if (isGenerated && !isAutoInc) {
                                 generatedColumns.add(colName);
                             }
                         }
@@ -89,7 +94,7 @@ public class SchemaInspector {
                         }
                     }
 
-                    tables.add(new TableMetadata(tableName, primaryKeyColumns, foreignKeys, uniqueCandidateKeys, columns, generatedColumns));
+                    tables.add(new TableMetadata(tableName, primaryKeyColumns, foreignKeys, uniqueCandidateKeys, columns, generatedColumns, identityColumns));
                 }
             }
         } catch (java.sql.SQLException e) {

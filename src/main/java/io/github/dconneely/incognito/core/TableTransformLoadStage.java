@@ -1,6 +1,7 @@
 package io.github.dconneely.incognito.core;
 
 import io.github.dconneely.alterego.AlterEgo;
+import io.github.dconneely.alterego.Randomness;
 import io.github.dconneely.alterego.Transformation;
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.IncognitoException;
@@ -40,6 +41,8 @@ public final class TableTransformLoadStage implements PipelineStage {
 
     private static final int FETCH_SIZE = 5000;
     private static final int BATCH_SIZE = 1000;
+    /** SYNTHESISE window for dates: ±5y destroys the identifying year (SPEC Appendix B). */
+    private static final int SYNTHESISE_DATE_WINDOW_DAYS = 1825;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -66,9 +69,6 @@ public final class TableTransformLoadStage implements PipelineStage {
         long totalRows = 0;
 
         try {
-            // Suppress FK enforcement on target for loading.
-            suppressFkEnforcement(context);
-
             for (String tableName : plan.sequentialTableOrder()) {
                 SchemaInspector.TableMetadata tableMeta = metadataByName.get(tableName);
                 if (tableMeta == null) continue;
@@ -83,9 +83,6 @@ public final class TableTransformLoadStage implements PipelineStage {
 
             // Resync sequences on target.
             resyncSequences(context, plan.sequentialTableOrder(), metadataByName);
-
-            // Restore FK enforcement.
-            restoreFkEnforcement(context);
 
         } catch (SQLException e) {
             throw new IncognitoException.SchemaException("Error during transform/load", e);
@@ -121,9 +118,10 @@ public final class TableTransformLoadStage implements PipelineStage {
             .map(col -> buildTransformer(col, tablePolicy, tableMeta, alterEgo))
             .toList();
 
-        // Determine if the PK is an identity column (needs OVERRIDING SYSTEM VALUE).
+        // OVERRIDING SYSTEM VALUE is required for identity PKs and errors on a non-identity PK,
+        // so key strictly off the identity flag from the schema inspector.
         boolean hasIdentityPk = !tableMeta.primaryKeyColumns().isEmpty()
-            && tableMeta.columns().contains(tableMeta.primaryKeyColumns().getFirst());
+            && tableMeta.identityColumns().contains(tableMeta.primaryKeyColumns().getFirst());
 
         String selectSql = "SELECT " + String.join(", ", columnsToProcess) + " FROM " + tableName;
         String insertSql = buildInsertSql(tableName, columnsToProcess, hasIdentityPk);
@@ -136,6 +134,10 @@ public final class TableTransformLoadStage implements PipelineStage {
 
             sourceConn.setAutoCommit(false);
             targetConn.setAutoCommit(false);
+
+            // Suppress FK enforcement + user triggers on the SAME connection used for the inserts
+            // (session_replication_role is per-session; it resets when this connection closes).
+            trySetReplicaRole(targetConn);
 
             try (Statement stmt = sourceConn.createStatement()) {
                 stmt.setFetchSize(FETCH_SIZE);
@@ -249,10 +251,9 @@ public final class TableTransformLoadStage implements PipelineStage {
             case ALTEREGO_NAME -> alterEgo.fullName();
             case ALTEREGO_EMAIL -> alterEgo.emailAddress();
             case ALTEREGO_PHONE -> alterEgo.phoneNumber();
-            case ALTEREGO_GENERIC -> alterEgo.bind(domain, (input, ctx) -> {
-                // Generic: produce a deterministic but fictional replacement
-                return "ANON-" + Math.abs(input.hashCode());
-            });
+            // Salt-keyed, shape-preserving fabrication (ctx.random() is AlterEgo's HMAC-SHA256 stream).
+            // NOT input.hashCode(): an un-salted hash is reversible by guessing (SPEC §5.1).
+            case ALTEREGO_GENERIC -> alterEgo.bind(domain, (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
         };
 
         return (value, sqlType, counter, keyStore, tbl) -> {
@@ -299,18 +300,18 @@ public final class TableTransformLoadStage implements PipelineStage {
                 // For dates: generate a random date in a plausible range.
                 // For strings: generate a fictional replacement.
                 String domain = "incognito:synth:" + tableName + ":" + colPolicy.columnName();
+                // Dates: wide ±5y jitter DESTROYS the identifying year (shiftDate(YEAR) would keep it).
+                Transformation<LocalDate> dateTransform = alterEgo.shiftDate(SYNTHESISE_DATE_WINDOW_DAYS);
+                // Strings: salt-keyed, shape-preserving fabrication (not input.hashCode()).
+                Transformation<String> strTransform = alterEgo.bind(domain,
+                    (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
                 yield (value, sqlType, counter, keyStore, tbl) -> {
                     if (value == null) return null;
                     if (value instanceof LocalDate || value instanceof java.sql.Date) {
-                        // Synthesise: random day within the same year (reasonable default).
-                        Transformation<LocalDate> dateTransform = alterEgo.shiftDate(AlterEgo.DateField.YEAR);
                         LocalDate ld = (value instanceof java.sql.Date sd) ? sd.toLocalDate() : (LocalDate) value;
                         LocalDate result = dateTransform.apply(ld);
                         return (value instanceof java.sql.Date) ? java.sql.Date.valueOf(result) : result;
                     }
-                    // For other types, apply a generic string transformation.
-                    Transformation<String> strTransform = alterEgo.bind(domain,
-                        (input, ctx) -> "SYNTH-" + Math.abs(input.hashCode()));
                     return strTransform.apply(value.toString());
                 };
             }
@@ -328,29 +329,35 @@ public final class TableTransformLoadStage implements PipelineStage {
         return sql;
     }
 
-    private void suppressFkEnforcement(PipelineContext context) throws SQLException {
-        try (Connection conn = context.target().getConnection();
-             Statement stmt = conn.createStatement()) {
-            try {
-                stmt.execute("SET session_replication_role = 'replica'");
-                conn.commit();
-            } catch (SQLException e) {
-                // Fallback: not superuser — will rely on topological ordering.
-                // In a full implementation, we'd disable triggers per-table here.
-            }
+    /**
+     * Sets {@code session_replication_role = 'replica'} on the given connection (needs superuser),
+     * suppressing FK enforcement and user triggers for that connection's inserts. The setting is
+     * per-session and resets automatically when the connection closes. If the account is not a
+     * superuser this is a no-op and the load relies on strict topological ordering.
+     */
+    private void trySetReplicaRole(Connection conn) {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("SET session_replication_role = 'replica'");
+        } catch (SQLException ignored) {
+            // Not superuser — parents load before children by topological order.
         }
     }
 
-    private void restoreFkEnforcement(PipelineContext context) throws SQLException {
-        try (Connection conn = context.target().getConnection();
-             Statement stmt = conn.createStatement()) {
-            try {
-                stmt.execute("SET session_replication_role = 'origin'");
-                conn.commit();
-            } catch (SQLException e) {
-                // Fallback: was not set, no action needed.
-            }
+    /**
+     * Salt-keyed, shape/length-preserving fabrication: each character is replaced by a random one of
+     * the same class (digit/upper/lower) drawn from AlterEgo's HMAC-SHA256 stream; other characters
+     * are kept so length and format survive (helps satisfy CHECK/length constraints — Goal 1).
+     */
+    private static String fabricateShapePreserving(String input, Randomness r) {
+        StringBuilder sb = new StringBuilder(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (Character.isDigit(c)) sb.append(r.digit());
+            else if (c >= 'A' && c <= 'Z') sb.append(r.letterUpper());
+            else if (c >= 'a' && c <= 'z') sb.append(r.letterLower());
+            else sb.append(c);
         }
+        return sb.toString();
     }
 
     private void resyncSequences(
@@ -380,7 +387,8 @@ public final class TableTransformLoadStage implements PipelineStage {
                     // Non-PostgreSQL or no sequence — skip.
                 }
             }
-            conn.commit();
+            // Connection is autoCommit=true (fresh from the DataSource), so each setval already
+            // committed; an explicit commit() here would throw "Cannot commit when autoCommit is enabled".
         }
     }
 

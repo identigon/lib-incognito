@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class WalkingSkeletonTest {
 
-    private PostgreSQLContainer<?> pg;
+    private PostgreSQLContainer pg;
     private DataSource sourceDs;
     private DataSource targetDs;
 
@@ -59,7 +59,7 @@ class WalkingSkeletonTest {
             "Docker is not available — skipping Testcontainers integration tests");
 
         try {
-            pg = new PostgreSQLContainer<>("postgres:16-alpine")
+            pg = new PostgreSQLContainer("postgres:16-alpine")
                 .withDatabaseName("incognito_source")
                 .withUsername("test")
                 .withPassword("test");
@@ -103,10 +103,11 @@ class WalkingSkeletonTest {
                 }
             }
 
-            // Create the target database.
-            String baseUrl = pg.getJdbcUrl().replace("/incognito_source", "/");
+            // Create the target database. Build URLs from host/port — getJdbcUrl() carries query
+            // params (e.g. ?loggerLevel=OFF), so appending a db name to it produces a bad URL.
+            String jdbcBase = "jdbc:postgresql://" + pg.getHost() + ":" + pg.getFirstMappedPort() + "/";
             try (Connection adminConn = DriverManager.getConnection(
-                    baseUrl + "postgres", pg.getUsername(), pg.getPassword())) {
+                    jdbcBase + "postgres", pg.getUsername(), pg.getPassword())) {
                 adminConn.setAutoCommit(true);
                 try (Statement stmt = adminConn.createStatement()) {
                     stmt.execute("CREATE DATABASE incognito_target");
@@ -114,7 +115,7 @@ class WalkingSkeletonTest {
             }
 
             // Create the same schema in the target (schema-identical clone).
-            String targetUrl = pg.getJdbcUrl().replace("/incognito_source", "/incognito_target");
+            String targetUrl = jdbcBase + "incognito_target";
             try (Connection conn = DriverManager.getConnection(
                     targetUrl, pg.getUsername(), pg.getPassword())) {
                 conn.setAutoCommit(true);
@@ -211,9 +212,10 @@ class WalkingSkeletonTest {
                          + "AND email NOT LIKE '%@example.org' "
                          + "AND email NOT LIKE '%@example.co.uk' "
                          + "AND email NOT LIKE '%@example.org.uk'")) {
-                assertFalse(rs.next(),
-                    "All emails should use RFC 2606 reserved domains, but found: "
-                        + (rs.isAfterLast() ? "none" : rs.getString(1)));
+                boolean foundNonReserved = rs.next();
+                String offending = foundNonReserved ? rs.getString(1) : "none";
+                assertFalse(foundNonReserved,
+                    "All emails should use RFC 2606 reserved domains, but found: " + offending);
             }
 
             // 4. No real email survived.

@@ -8,8 +8,11 @@ import java.util.function.Consumer;
 
 /**
  * Top-level anonymisation policy: default parameters and table-level policies. The fabrication
- * model (SPEC §4) has no k-factor or l-diversity; {@code maxCategoricalCardinality} gates whether
- * a {@code SENSITIVE} column is kept real or must be fabricated (§4.1).
+ * model (SPEC §4) has no k-factor or l-diversity. Whether a {@code SENSITIVE} column is kept real
+ * or fabricated is <em>declared</em> per column via a boolean {@code distinguishing} flag (§2.2/§4.1);
+ * {@code maxCategoricalCardinality} is only the threshold for the default-on misdeclaration lint
+ * ({@code distinguishingLint}: WARN | ERROR | OFF) that flags a {@code distinguishing: false} column
+ * looking free-text — it is not the gate.
  */
 public record AnonymisationPolicy(
     boolean autoInfer,

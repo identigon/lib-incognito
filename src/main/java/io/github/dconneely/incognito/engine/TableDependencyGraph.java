@@ -65,13 +65,22 @@ public class TableDependencyGraph {
             }
         }
         
-        List<String> cyclicTablesToUpdatePass2 = new java.util.ArrayList<>();
+        // Any table left with in-degree > 0 is part of a foreign-key cycle (including a
+        // self-referential FK). Cyclic-FK handling (placeholder surrogate + 2-pass UPDATE) is not
+        // yet implemented, so FAIL LOUDLY rather than silently dropping those tables from the load.
+        List<String> cyclicTables = new java.util.ArrayList<>();
         for (java.util.Map.Entry<String, Integer> entry : inDegree.entrySet()) {
             if (entry.getValue() > 0) {
-                cyclicTablesToUpdatePass2.add(entry.getKey());
+                cyclicTables.add(entry.getKey());
             }
         }
-        
-        return new TopologicalExecutionPlan(sequentialTableOrder, cyclicTablesToUpdatePass2);
+        if (!cyclicTables.isEmpty()) {
+            throw new IncognitoException.SchemaException(
+                "Foreign-key cycle(s) involving tables " + cyclicTables
+                    + " — cyclic/self-referential FK handling is not yet implemented (deferred Phase-3 work). "
+                    + "These tables would otherwise be silently skipped.");
+        }
+
+        return new TopologicalExecutionPlan(sequentialTableOrder, cyclicTables);
     }
 }

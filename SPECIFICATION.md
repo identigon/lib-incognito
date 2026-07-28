@@ -47,6 +47,21 @@ PipelineResult result = pipeline.execute();
 - **Offline snapshot.** Incognito runs against an offline snapshot/staging copy of the production database; correctness and topology preservation are prioritised over throughput.
 - **Superuser target privileges.** The target account is assumed to hold `SUPERUSER` (or `rds_superuser`) so Incognito can `SET session_replication_role = 'replica'` to suppress FK enforcement and user triggers during load. Table-owner privileges alone are insufficient for that command; a documented degraded mode uses `ALTER TABLE ... DISABLE TRIGGER USER` plus explicit FK dropping.
 
+### 1.4 Relationship to `lib-alterego` — two libraries, two responsibilities
+
+Incognito and [`lib-alterego`](../lib-alterego) are deliberately separate libraries, and the split is **not** because Incognito performs statistical or dataset-wide analysis — it does not. (That was a k-anonymity-era assumption: forming equivalence classes needs a *global* pass over a table. With fabrication there is no such pass — see §2.3.) Incognito **streams** row-by-row (`fetchSize = 5000`) and never holds a dataset in memory. The real reason for two libraries is a difference of **responsibility**, not of batch size:
+
+| | `lib-alterego` | Incognito |
+| :--- | :--- | :--- |
+| **Scope** | A single **value**, or the fields of one **record**. | A whole **relational database**. |
+| **Job** | Given a value, produce a fabricated replacement (name, e-mail, date shift, …), deterministic in `(salt, domain, value)`. | Clone a schema and load it while keeping every **cross-row / cross-table** invariant intact. |
+| **State** | Essentially stateless w.r.t. the dataset; DB-agnostic; reusable on a CSV, an API payload, a message, or one record. | Holds bounded **per-entity relational state**: key maps, jitter deltas, inherited attributes. |
+| **Knows about** | Values and formats. | Tables, primary/foreign keys, load order, triggers, sequences, DPIA reporting. |
+
+Incognito **consumes** Alterego as its field-transformation engine and owns everything Alterego structurally cannot: schema discovery and column-role classification; topological ordering (parents before children); **key translation** (`PRIMARY_KEY` → surrogate, `FOREIGN_KEY` rewritten to the *same* mapped parent surrogate); **coherent cross-entity temporal deltas** (a child event inherits its parent's day-shift — Alterego's per-field jitter draws an *independent* delta per call and structurally cannot do this, Appendix A); **root-ancestor attribute cascade**; bulk loading with trigger isolation and sequence resync; and the accountability report.
+
+These are all **referential-coherence** concerns — meaningless for Alterego's single-value contract, and folding them in would couple Alterego to JDBC and relational schemas, destroying its reuse as a standalone value transformer. So the boundary is simply: **Alterego fabricates fields; Incognito preserves relationships.** The earlier "records vs datasets" framing was really this distinction all along — it only *looked* statistical while k-anonymity was still in scope.
+
 ---
 
 ## 2. Privacy Model & GDPR Alignment
@@ -68,10 +83,12 @@ Because identifiers and quasi-identifiers are fabricated, **operational data can
 
 ### 2.2 The role of "Sensitive" attributes after fabrication
 
-A sensitive value matters only if it can act as, or be tied to, an identifier. After fabrication:
+A sensitive value matters only if it can act as, or be tied to, an identifier. After fabrication, the policy **declares** which of two kinds each `SENSITIVE` column is — Incognito does not guess from the data (§4.1):
 
-- **Low-cardinality sensitive fields** (booleans, small code sets — `Referred to Debt Recovery Flag`, `Intervened Flag`, …) are shared by many rows, single out no one, and are **kept real** for test realism.
-- **High-cardinality / rare / free-text sensitive fields** (a distinctive narrative, a rare code, an unusual amount) can themselves single a person out — they are effectively quasi-identifiers and must be **fabricated or redacted**. The cardinality gate (§4.1) enforces this: a `SENSITIVE` column above `maxCategoricalCardinality` must carry a fabrication/redaction strategy or the run fails (fail-closed).
+- **Non-distinguishing sensitive fields** (`distinguishing: false` — booleans, small code sets: `Referred to Debt Recovery Flag`, `Intervened Flag`, …) are shared by many rows, single out no one, and are **kept real** for test realism.
+- **Distinguishing / rare / free-text sensitive fields** (`distinguishing: true` — a distinctive narrative, a rare code, an unusual amount) can themselves single a person out — they are effectively quasi-identifiers and must be **fabricated or redacted**. A `distinguishing: true` column that carries no `QuasiIdStrategy` or `RedactionStrategy`, or a `SENSITIVE` column that declares *no* `distinguishing` value at all, fails the run (fail-closed, §4.1).
+
+Declaring whether a value is `distinguishing` is a one-word policy decision the author is best placed to make; it replaces an automatic distinct-count gate (a k-anonymity-era residue, §2.3) and removes the last point where the privacy decision depended on reading source *values*. A misdeclaration lint (§4.1) — **on by default** — still cross-checks each `distinguishing: false` declaration against the real distinct count and warns if it looks mis-declared.
 
 ### 2.3 Why not k-anonymity
 
@@ -82,7 +99,7 @@ Classical k-anonymity/l-diversity exist to bound re-identification **while retai
 Incognito reduces, but a DPIA must still weigh, these residual risks — surfaced in the report, not hidden:
 
 - **Structural / relational re-identification.** Row counts and the FK graph are preserved 1:1, so a subject with a distinctive relational fingerprint (e.g. the one entity with 300 linked children) may be re-identifiable from *structure* even with fabricated fields — and any real value on that row (a kept operational/sensitive field) is then disclosed. v1.0 does not mitigate this; a **structural-uniqueness report** is a roadmap DPIA-evidence item.
-- **Self-identifying sensitive/operational values.** A retained real value that is rare or free-text can itself identify (§2.2). The cardinality gate defends the declared `SENSITIVE` columns; the DPIA must confirm no *operational* column is inadvertently identifying.
+- **Self-identifying sensitive/operational values.** A retained real value that is rare or free-text can itself identify (§2.2). Declaring `distinguishing: true` fabricates/redacts distinctive sensitive columns, and the default-on lint (§4.1) flags a `distinguishing: false` column that looks free-text; but the DPIA must still confirm the declarations are correct and that no *operational* column is inadvertently identifying — a mis-declared `distinguishing: false` leaks unless the lint (in `WARN` or `ERROR` mode) catches it.
 - **Undeclared identifiers.** A real identifier mistakenly left `OPERATIONAL`/`PAYLOAD` passes through. Fail-closed classification (§7.2) forces an explicit decision per column but cannot judge context.
 - **Value-equality pattern preserved.** Because fabrication is deterministic per `(salt, value)`, equal source values map to equal fabricated values within a run (needed for referential consistency where a value is denormalised across tables). The *pattern* of which rows share a value is therefore preserved even though the values are fake. A per-column *non-deterministic* mode is a post-v1.0 option.
 
@@ -103,7 +120,7 @@ Execution is a sequence of decoupled stages. `IncognitoPipeline` generates a fre
 1. SchemaDiscoveryStage
    - Inspects JDBC metadata (PKs, FKs, UNIQUEs, identity vs computed columns)
    - Filters out VIEWs & computed GENERATED columns (checks isPrimaryKey/IS_AUTOINCREMENT)
-   - Evaluates SENSITIVE cardinality gate via portable COUNT(DISTINCT col) / pg_stats (§4.1)
+   - Validates each SENSITIVE column's declared distinguishing: true|false + strategy at config time (fail-closed, no data read); §4.1
    - Resolves every column to a ColumnRole (fail-closed; auto-infer only suggests)
    - Builds the table dependency DAG (Tarjan SCC for cyclic FKs)
                                      │
@@ -111,7 +128,7 @@ Execution is a sequence of decoupled stages. `IncognitoPipeline` generates a fre
 2. TableTransformStage (iterates the DAG in topological order)
    - Fabricates DIRECT_ID via AlterEgo (.unique() with sequence-fallback for high cardinality — §4.1)
    - Fabricates QUASI_ID (synthesise, or coherent jitter for temporal — §4.2)
-   - Keeps OPERATIONAL / PAYLOAD real; cardinality-gates SENSITIVE (§4.1)
+   - Keeps OPERATIONAL / PAYLOAD real; applies each SENSITIVE column's declared distinguishing flag (§4.1)
    - Resolves INHERITED_ATTRIBUTE from root ancestor (AttributeCascadeStore — §6.1)
    - Propagates entity temporal jitter deltas via AttributeCascadeStore (§4.2)
    - Translates PRIMARY_KEY to surrogates; records them in KeyTranslationStore
@@ -145,16 +162,23 @@ The heart of Incognito is a **per-column transformation dial**, all of it backed
 | `DIRECT_ID` (Direct Identifier) | **Fabricate** via `DirectIdStrategy` (name / e-mail / phone / generic). Default `ALTEREGO_GENERIC`. |
 | `UNIQUE_CANDIDATE_KEY` | Fabricate via `AlterEgo.unique()` (guaranteed collision-free within the table; sequence-decorated fallback if dictionary exhausted). |
 | `QUASI_ID` (Quasi-Identifier) | **Fabricate** via `QuasiIdStrategy` — `SYNTHESISE` (fresh fictional value) or a jitter mode for temporal data (§4.2). |
-| `SENSITIVE` (Level-2 Sensitive) | **Cardinality gate** (see below). Kept real iff its distinct-value count ≤ `maxCategoricalCardinality` (default 64); above that it must carry a `QuasiIdStrategy` (fabricated like a QI) **or** a `RedactionStrategy` (`CLEAR`/`MASK`/`CONSTANT`), else `IncognitoException.ConfigException` (fail-closed). |
+| `SENSITIVE` (Level-2 Sensitive) | **Declared `distinguishing` flag** (§2.2, see below). `distinguishing: false` → **kept real**. `distinguishing: true` → must carry a `QuasiIdStrategy` (fabricated like a QI) **or** a `RedactionStrategy` (`CLEAR`/`MASK`/`CONSTANT`). Omitting `distinguishing`, or a `distinguishing: true` column with no strategy, is `IncognitoException.ConfigException` (fail-closed). |
 | `PAYLOAD` (Operational) | **Kept real** — the operational data that makes the clone useful for API testing. |
 | `PRIMARY_KEY` | Surrogate translation via `SurrogateStrategy`; recorded in `KeyTranslationStore`. |
 | `FOREIGN_KEY` | Rewritten to the mapped parent surrogate; placeholder + 2-pass UPDATE for cyclic FKs. |
 | `INHERITED_ATTRIBUTE` | Resolved from the **root ancestor** entity via `AttributeCascadeStore` (§6.1). |
 | `GENERATED_COLUMN` | Excluded from `INSERT` (computed column; distinct from an identity PK, §7 note). |
 
-`OPERATIONAL` in a source-data classification maps to `PAYLOAD` (kept). `SENSITIVE` is **not** an l-diversity target — it is the cardinality gate above.
+`OPERATIONAL` in a source-data classification maps to `PAYLOAD` (kept). `SENSITIVE` is **not** an l-diversity target — it is the declared `distinguishing: true | false` split above.
 
-**The cardinality probe.** The gate is **privacy-critical and fail-closed**, so its *definitive* measurement is a portable, exact `SELECT COUNT(DISTINCT col)` per declared `SENSITIVE` column — correct on any RDBMS regardless of how well its statistics are maintained. It must **not** depend on estimates: an under-count would silently keep a high-cardinality sensitive column real (a fail-open leak). As an *optional optimisation*, `SchemaDiscoveryStage` may consult PostgreSQL `pg_stats.n_distinct` to skip the exact count only when the estimate is comfortably clear of the threshold (noting it is an estimate requiring `ANALYZE`, and is negative-encoded as a row-ratio for high-cardinality columns); near the threshold, or when stats are absent/stale, it falls back to the exact count. A column that must be redacted/fabricated but carries no strategy fails here, before any data is written. This is the only place Incognito reads the source ahead of the streaming transform, and it touches only `SENSITIVE` columns.
+**The gate is the declaration, not a probe.** Because keep-vs-fabricate is now **declared** by the policy author, the privacy decision no longer reads any source *value* — Incognito acts purely on the `distinguishing` flag and the presence of a strategy, both checked at config time before a row is touched (fail-closed). This removes the last dataset-level value probe from the privacy path.
+
+**Misdeclaration lint (on by default; still not the gate).** As a safety net against a `distinguishing: false` label on a field that is really free-text, `VerificationStage` **runs by default** an exact `SELECT COUNT(DISTINCT col)` on every `distinguishing: false` column and acts when the true count exceeds `maxCategoricalCardinality` (default 64). Its behaviour is set by `distinguishingLint`:
+- **`WARN`** (default) — **record a warning in the report** and continue.
+- **`ERROR`** — fail the run with `IncognitoException.ConstraintException` (belt-and-braces / CI gate).
+- **`OFF`** — skip the check entirely (e.g. very large tables where a per-column scan is too costly).
+
+It is still **not** the privacy decision: a run does not keep a value real *because* of a statistic, only because the author declared it non-distinguishing — the lint merely flags a declaration that looks mistaken. (PostgreSQL `pg_stats.n_distinct` may be consulted first as a cheap pre-filter, falling back to the exact count near the threshold.)
 
 ### 4.2 Temporal fabrication & volume preservation
 
@@ -210,33 +234,34 @@ v1.0 ships only `InMemoryKeyTranslationStore`. Future external stores MUST be co
 
 ## 6. Declarative YAML & Programmatic Policy Schema
 
+The strategy is given by a **role-specific key** (not a single polymorphic `strategy:`), which removes any ambiguity about which enum applies: `surrogateStrategy` (PK), `directIdStrategy` (DIRECT_ID / UNIQUE_CANDIDATE_KEY), `quasiIdStrategy` (QUASI_ID), `redactionStrategy` (SENSITIVE). A `SENSITIVE` column also requires a `distinguishing: true | false` flag (§4.1). `references`/`derivedFrom` are nested `{ table, column }` maps.
+
 ```yaml
 # incognito-policy.yaml
-version: "1.0"
-defaults:
-  auto_infer: false                 # fail-closed default
-  max_categorical_cardinality: 64   # SENSITIVE keep-vs-fabricate gate (§4.1)
+autoInfer: false                 # fail-closed default
+maxCategoricalCardinality: 64    # misdeclaration-lint threshold: flag a distinguishing:false column above it (§4.1)
+distinguishingLint: WARN         # default; cross-check distinguishing:false vs COUNT(DISTINCT). WARN | ERROR | OFF (§4.1)
 
 tables:
   customers:
     columns:
-      id:            { role: PRIMARY_KEY, strategy: SEQUENTIAL_LONG }
-      account_no:    { role: UNIQUE_CANDIDATE_KEY, strategy: ALTEREGO_GENERIC }
-      full_name:     { role: DIRECT_ID, strategy: ALTEREGO_NAME }
-      email:         { role: DIRECT_ID, strategy: ALTEREGO_EMAIL }
-      dob:           { role: QUASI_ID, strategy: SYNTHESISE }
-      postcode:      { role: QUASI_ID, strategy: SYNTHESISE }
-      last_seen:     { role: QUASI_ID, strategy: JITTER_DAYS, jitter_days: 14 }
-      debt_recovery_flag: { role: SENSITIVE }                 # low-cardinality boolean → kept real
-      case_notes:    { role: SENSITIVE, strategy: CLEAR }     # high-cardinality free text → redacted
-      status:        { role: PAYLOAD }                        # operational → kept real
+      id:            { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      account_no:    { role: UNIQUE_CANDIDATE_KEY, directIdStrategy: ALTEREGO_GENERIC }
+      full_name:     { role: DIRECT_ID, directIdStrategy: ALTEREGO_NAME }
+      email:         { role: DIRECT_ID, directIdStrategy: ALTEREGO_EMAIL }
+      dob:           { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      postcode:      { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      last_seen:     { role: QUASI_ID, quasiIdStrategy: JITTER_DAYS, jitterDays: 14 }
+      debt_recovery_flag: { role: SENSITIVE, distinguishing: false } # flag shared by many → kept real
+      case_notes:    { role: SENSITIVE, distinguishing: true, redactionStrategy: CLEAR }  # free text → redacted
+      status:        { role: PAYLOAD }                               # operational → kept real
 
   contracts:
     columns:
-      id:            { role: PRIMARY_KEY, strategy: SEQUENTIAL_LONG }
-      customer_id:   { role: FOREIGN_KEY, references: customers.id }
-      start_date:    { role: QUASI_ID, strategy: JITTER_WITHIN_MONTH, coherence_group: contract }
-      end_date:      { role: QUASI_ID, strategy: JITTER_WITHIN_MONTH, coherence_group: contract }
+      id:            { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      customer_id:   { role: FOREIGN_KEY, references: { table: customers, column: id } }
+      start_date:    { role: QUASI_ID, quasiIdStrategy: JITTER_WITHIN_MONTH, coherenceGroup: contract }
+      end_date:      { role: QUASI_ID, quasiIdStrategy: JITTER_WITHIN_MONTH, coherenceGroup: contract }
 ```
 
 ### 6.1 Root Ancestor Cascade Resolution
@@ -286,6 +311,17 @@ public enum QuasiIdStrategy {
 
 public enum RedactionStrategy { CLEAR, MASK, CONSTANT }
 
+// SENSITIVE columns declare a required boolean `distinguishing` flag on ColumnPolicy (§2.2/§4.1) —
+// no enum, no automatic distinct-count gate:
+//   distinguishing == false -> kept real (a flag/category shared by many; singles out no one).
+//   distinguishing == true  -> must carry a QuasiIdStrategy (fabricate) or RedactionStrategy (redact),
+//                              else ConfigException.
+//   absent on a SENSITIVE column -> ConfigException (fail-closed; no default).
+// Modelled as a nullable Boolean on ColumnPolicy so "not declared" is distinguishable from false.
+
+// Misdeclaration lint over distinguishing:false columns (§4.1), on by default:
+public enum DistinguishingLint { WARN, ERROR, OFF }  // default WARN; ERROR fails the run; OFF skips
+
 public enum SurrogateStrategy { SEQUENTIAL_LONG, UUID_V4, PASSTHROUGH_SURROGATE }
 
 public record CompositeKey(Object... components) {
@@ -317,6 +353,7 @@ public record AnonymisationPolicy(...) {                       // fields elided
     public static class Builder {
         Builder autoInfer(boolean enable);          // default FALSE (fail-closed)
         Builder maxCategoricalCardinality(int n);   // default 64 (§4.1)
+        Builder distinguishingLint(DistinguishingLint mode); // default WARN (§4.1)
         Builder table(String name, java.util.function.Consumer<TablePolicy.Builder> spec);
         AnonymisationPolicy build();
     }
@@ -324,11 +361,11 @@ public record AnonymisationPolicy(...) {                       // fields elided
 public record TablePolicy(...) {                               // fields elided
     public static class Builder {
         // Fluent shortcuts — the single-modifier common cases:
-        Builder column(String name, ColumnRole role);                             // QUASI_ID(SYNTHESISE)/SENSITIVE/PAYLOAD/...
+        Builder column(String name, ColumnRole role);                             // QUASI_ID(SYNTHESISE)/PAYLOAD/... (SENSITIVE needs distinguishing → use full form)
         Builder column(String name, ColumnRole role, SurrogateStrategy strategy);  // PRIMARY_KEY
         Builder column(String name, ColumnRole role, DirectIdStrategy strategy);   // DIRECT_ID / UNIQUE_CANDIDATE_KEY
         Builder column(String name, ColumnRole role, QuasiIdStrategy strategy);    // QUASI_ID (mode only)
-        Builder column(String name, ColumnRole role, RedactionStrategy strategy);  // high-card SENSITIVE
+        Builder column(String name, ColumnRole role, RedactionStrategy strategy);  // distinguishing:true SENSITIVE (sets distinguishing=true)
         // Full form — for columns needing PARAMETERS (e.g. JITTER_DAYS window + coherenceGroup):
         Builder column(String name, ColumnPolicy.Builder col);
     }
@@ -340,7 +377,8 @@ public record ColumnPolicy(...) {                              // fields elided
         Builder surrogateStrategy(SurrogateStrategy s);   // WHICH: PRIMARY_KEY
         Builder directIdStrategy(DirectIdStrategy s);     // WHICH: DIRECT_ID / UNIQUE_CANDIDATE_KEY
         Builder quasiIdStrategy(QuasiIdStrategy s);       // WHICH: QUASI_ID jitter/synthesise mode
-        Builder redactionStrategy(RedactionStrategy s);   // WHICH: SENSITIVE redaction
+        Builder redactionStrategy(RedactionStrategy s);   // WHICH: distinguishing:true SENSITIVE redaction
+        Builder distinguishing(boolean flag);             // SENSITIVE: false=keep real, true=fabricate/redact (§4.1)
         Builder jitterDays(int days);                     // PARAM: ± window for JITTER_DAYS
         Builder coherenceGroup(String group);             // PARAM: shared-delta group (§4.2)
         Builder references(String table, String column);  // PARAM: FOREIGN_KEY target
@@ -501,14 +539,14 @@ Invariant: **anything a child looks up about its parent is keyed by the source F
 
 ## Appendix D — Orchestration, per-row dispatch, cyclic-FK load, and default constants
 
-**Default constants** (all overridable): streaming `fetchSize = 5000`; `maxCategoricalCardinality = 64`; `JITTER_DAYS` default window if unspecified = ±14 days; `mask` default `keepLast = 0`, `maskChar = '*'`; per-period volume tolerance in `VerificationStage` = **±2%** of the source bucket count (min ±1 row); coherent-delta window = the column's `jitterDays` (default ±14).
+**Default constants** (all overridable): streaming `fetchSize = 5000`; `maxCategoricalCardinality = 64`; `distinguishingLint = WARN` (on by default; §4.1); `JITTER_DAYS` default window if unspecified = ±14 days; `mask` default `keepLast = 0`, `maskChar = '*'`; per-period volume tolerance in `VerificationStage` = **±2%** of the source bucket count (min ±1 row); coherent-delta window = the column's `jitterDays` (default ±14).
 
 **`execute()` orchestration (pseudocode):**
 ```
 salt = generate/zero-managed (§5.1); ae = buildAlterEgo(salt)
 ctx  = new PipelineContext(source, target, policy, keyStore, cascadeStore, ae, dependencyGraph)
 try {
-    report = SchemaDiscoveryStage.run(ctx)          // metadata, roles(fail-closed), DAG, cardinality gate
+    report = SchemaDiscoveryStage.run(ctx)          // metadata, roles(fail-closed), DAG, declared-cardinality validation
     for table in ctx.dag.topologicalOrder():         // parents before children
         rows = TableTransformStage.transform(table, ctx)   // per-row dispatch, streamed
         TargetDatabaseLoadStage.load(table, rows, ctx)     // batch insert; defer cyclic FKs
@@ -532,7 +570,7 @@ switch (columnRole):
   QUASI_ID (coherence group)-> delta = cascadeStore.getJitterDelta(entityTable, entitySourceId)
                                         .orElseGet(() -> { d = deltaFor(entity); cascadeStore.putJitterDelta(...); return d; });
                                write value.plusDays(delta)                          // SAME delta for every group member
-  SENSITIVE            -> if kept: write value; else apply QuasiId/Redaction strategy
+  SENSITIVE            -> if distinguishing==false: write value; else apply QuasiId/Redaction strategy
   INHERITED_ATTRIBUTE  -> write cascadeStore.get(rootTable, rootSourceId(row), attr)   // §6.1 root-ancestor
   PAYLOAD              -> write value
   GENERATED_COLUMN     -> omit from INSERT

@@ -28,7 +28,7 @@ class SpecExamplesTest {
                 .column("full_name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_NAME)
                 .column("email", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_EMAIL)
                 .column("dob", ColumnRole.QUASI_ID, QuasiIdStrategy.SYNTHESISE)
-                .column("debt_recovery_flag", ColumnRole.SENSITIVE)   // low-cardinality → kept real
+                .column("debt_recovery_flag", ColumnRole.SENSITIVE)   // non-distinguishing → kept real (distinguishing flag is Phase 4)
                 .column("status", ColumnRole.PAYLOAD)                 // operational → kept real
             )
             .build();

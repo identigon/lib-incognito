@@ -26,19 +26,25 @@ public final class DefaultIncognitoPipeline implements IncognitoPipeline {
 
     @Override
     public PipelineResult execute() throws IncognitoException {
+        long startNanos = System.nanoTime();
         try {
             java.util.List<PipelineStage.StageResult> stageResults = new java.util.ArrayList<>();
-            // In Phase 2+, we will execute the stages here.
-            // For now, it's just a walking skeleton wrapper.
             for (PipelineStage stage : stages) {
                 stageResults.add(stage.process(context));
             }
 
+            long rowsLoaded = stageResults.stream()
+                .filter(r -> "TableTransformLoadStage".equals(r.stageName()))
+                .mapToLong(PipelineStage.StageResult::processedCount).sum();
+            int tablesProcessed = stageResults.stream()
+                .filter(r -> "SchemaDiscoveryStage".equals(r.stageName()))
+                .mapToInt(r -> (int) r.processedCount()).findFirst().orElse(0);
+
             return new PipelineResult(
                 true,
-                0L,
-                0,
-                Duration.ZERO,
+                rowsLoaded,
+                tablesProcessed,
+                Duration.ofNanos(System.nanoTime() - startNanos),
                 new io.github.dconneely.incognito.api.AnonymisationReport(Collections.emptyList(), stageResults)
             );
         } finally {

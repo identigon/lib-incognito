@@ -29,21 +29,25 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 ## Phase 2: Walking Skeleton (end-to-end vertical slice)
 
-- [ ] PostgreSQL Testcontainer with a 2-table schema (`users` parent, `orders` child; single-column PKs; one FK).
-- [ ] End-to-end run: schema discovery → in-memory store → `DIRECT_ID` (email) via `lib-alterego` + one `QUASI_ID` (dob) jittered → batch load → sequence resync → `VerificationStage`.
-- [ ] Assert: FK integrity holds in target, sequences work on new inserts, direct IDs replaced with fictional reserved domains.
-- [ ] Fail-closed check: an unclassified column aborts the run with `ConfigException`.
+- [x] PostgreSQL Testcontainer, 2-table schema (`users` parent, `orders` child) — `WalkingSkeletonTest`.
+- [x] End-to-end run: schema discovery → in-memory store → fabricate `DIRECT_ID` (email) + `QUASI_ID` (dob) → batch load → sequence resync → `VerificationStage`.
+- [x] Asserts: FK integrity, sequences work on new inserts, direct IDs in reserved domains, operational data preserved.
+- [x] Fail-closed check: an unclassified column aborts with `ConfigException`.
+- [x] **Gate A VERIFIED** — `WalkingSkeletonTest` runs end-to-end against a real PostgreSQL container: `2 passed, 0 skipped` (fabrication, FK integrity, sequence resync, reserved-domain fictionality, operational-data preservation, fail-closed). Requires Docker; it *skips gracefully* where Docker is unavailable.
+- Fixes applied during review + Gate A:
+  - **Privacy:** salt-keyed shape-preserving fabrication for `ALTEREGO_GENERIC` / string-`SYNTHESISE` (removed `hashCode`); dob `SYNTHESISE` → wide ±5y jitter (year destroyed).
+  - **Load:** `session_replication_role` set on the *insert* connection; identity-PK detection drives `OVERRIDING SYSTEM VALUE`; fixed a `resyncSequences` `commit()`-under-autoCommit bug; default stages auto-assembled by the builder; `autoInfer` no longer fails open.
+  - **Tooling:** Testcontainers `1.19.7 → 2.0.5` (Docker Engine 29.x needs API ≥1.40; 1.x probed 1.32); restored the PostgreSQL JDBC driver dep; `PostgreSQLContainer` package/generics updated for TC 2.x; fixed fragile test URL construction and an empty-`ResultSet` assertion bug.
 
 ---
 
 ## Phase 3: JDBC Schema Discovery, Declarative YAML & Topological Engine
 
 - [x] `SchemaInspector`:
-  - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes (`getIndexInfo(..., unique=true)`), SQL types.
-  - Filter to `TABLE` only (exclude `VIEW`, `MATERIALIZED VIEW`, `SYSTEM TABLE`).
-  - Detect **computed** generated columns vs identity PKs via **portable JDBC metadata** (`IS_GENERATEDCOLUMN`, `IS_AUTOINCREMENT`) as the definitive path.
-  - `SENSITIVE` cardinality gate: **definitive** measurement is a portable, exact `COUNT(DISTINCT col)` (privacy-critical, must not depend on estimates).
-  - Composite PK/FK support (`CompositeKey`).
+  - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes, SQL types; filter to `TABLE` only.
+  - Detect **computed** generated columns (`IS_GENERATEDCOLUMN`) vs **identity** columns (`IS_AUTOINCREMENT`, now a separate `identityColumns` list driving `OVERRIDING SYSTEM VALUE`).
+  - [ ] **Composite PK/FK NOT done** — FKs are modelled as `Map<fkColumn → parentTable>` (single-column only); composite keys need a richer model before Pagila/Phase 7.
+  - [ ] `SENSITIVE` handling **NOT done** — SENSITIVE is currently passed through. Phase 4 uses a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), not an automatic `COUNT(DISTINCT)` gate; the distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`).
 - [x] **Policy Inference (`PolicyInferrer.java`)**:
   - Implement regex-based heuristic inference (e.g. `.*email.*` -> `DIRECT_ID`).
   - Add to report as `InferSuggestion` (do not auto-apply).
@@ -52,10 +56,8 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Map YAML structure to `AnonymisationPolicy` records.
   - Throw `ConfigException` on syntax errors or invalid fields.
 - [x] Test: `YamlConfigTest.java` (parse valid/invalid configs, verify `autoInfer` flag).
-- [x] `TableDependencyGraph` & cycle resolution:
-  - Tarjan's SCC to detect cyclic FK references.
-  - Nullable cyclic FKs via 2-pass `NULL` deferral; `NOT NULL` cyclic FKs via dummy placeholder surrogate keys (Pass 1) + batch `UPDATE` (Pass 2).
-  - Single-threaded topological sort (parent → child).
+- [x] `TableDependencyGraph` — single-threaded topological sort (Kahn's algorithm; parent → child).
+- [ ] **Cyclic-FK handling NOT implemented.** A detected FK cycle (including a self-referential FK) now **throws `SchemaException` (fail-loud)** instead of silently dropping the tables. Still to do: nullable cyclic via `NULL`-deferral, `NOT NULL` cyclic via placeholder surrogate (Pass 1) + batch `UPDATE` (Pass 2). (The class comment's "Tarjan's SCC" is aspirational — it's currently Kahn.)
 
 ---
 
@@ -65,7 +67,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - `DIRECT_ID` via `lib-alterego` (`DirectIdStrategy`); `UNIQUE_CANDIDATE_KEY` via `AlterEgo.unique()` with sequence-decorated fallback (`Value_000001`).
   - `QUASI_ID` temporal jitter (SPEC §4.2): **standalone** dates → bucket-preserving `JITTER_WITHIN_MONTH`/`_YEAR` (exact per-period volumes); **ordered/related** dates (`created_at ≤ approved_at`, contract `start`/`end`, parent-child windows) → **one shared delta per coherence group** (exact orderings/intervals, "similar" volumes). Bucket jitter does NOT preserve ordering — only the shared delta does.
   - Cache the per-entity shared delta in `AttributeCascadeStore` (`putJitterDelta(table, id, deltaDays)`) so child event dates inherit the parent's shift and stay within parent bounds (SPEC §4.2).
-  - `SENSITIVE` cardinality gate: distinct-value count $\le 64 \rightarrow$ keep real; $> 64 \rightarrow$ require `QuasiIdStrategy` or `RedactionStrategy`.
+  - `SENSITIVE` **declared `distinguishing` flag** (SPEC §2.2/§4.1): `distinguishing: false` $\rightarrow$ keep real; `distinguishing: true` $\rightarrow$ require `QuasiIdStrategy` or `RedactionStrategy`; missing `distinguishing`, or `distinguishing: true` with no strategy $\rightarrow$ `ConfigException` (fail-closed, checked at config time). Misdeclaration lint **on by default** (`distinguishingLint`: `WARN` default / `ERROR` fails the run / `OFF` skips): flag a `distinguishing: false` column whose real `COUNT(DISTINCT)` exceeds `maxCategoricalCardinality`.
   - `PAYLOAD` columns kept real.
   - Resolve `INHERITED_ATTRIBUTE` directly from root ancestor entity in `AttributeCascadeStore` (SPEC §6.1).
   - Translate `PRIMARY_KEY` to surrogates; rewrite `FOREIGN_KEY` to mapped parent surrogates.
@@ -89,7 +91,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Deferred: 2-pass batch `UPDATE` for nullable and `NOT NULL` placeholder cyclic FKs.
   - Post-load: restore FK enforcement + triggers; resync sequences (`SELECT setval(...)`).
 - [ ] `IncognitoCleanUpHandler`: on failure, re-enable triggers + FK enforcement, resync sequences, truncate partially loaded tables, and zero Incognito's salt copy + release `AlterEgo` instance (SPEC §5.1, §8.1).
-- [ ] `VerificationStage`: assert referential integrity on target, verify fictionality (reserved e-mail domains/phones), check per-period volume tolerances.
+- [ ] `VerificationStage`: assert referential integrity on target, verify fictionality (reserved e-mail domains/phones), check per-period volume tolerances, and run the default-on `distinguishing:false` misdeclaration lint (§4.1; `distinguishingLint` WARN/ERROR/OFF).
 - [ ] `AnonymisationReport` emitter: serialise typed report to JSON/HTML as concrete DPIA artifact.
 
 ---
@@ -104,5 +106,5 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Direct IDs & QIs fabricated; secret salt never persisted/logged and destroyed on completion.
   - Monotonic date sequence ordering preserved; coherent parent-child date deltas maintained.
   - High-cardinality candidate keys transformed without collision crashes via sequence-decorated fallback.
-  - System catalog cardinality probe executes fast without table scans.
+  - Misdeclaration lint behaves per `distinguishingLint`: `OFF` runs no `COUNT(DISTINCT)` scan; `WARN` reports; `ERROR` fails. It is never the privacy gate (the `distinguishing` declaration is).
   - `AnonymisationReport` carries full DPIA accountability evidence.

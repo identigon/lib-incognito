@@ -36,7 +36,7 @@ public interface IncognitoPipeline {
         Builder ephemeralSalt();                     // default: random secret salt, destroyed on completion
         Builder persistentSalt(byte[] salt);         // opt-in linkable mode; forfeits irreversibility
         Builder reproducible(byte[] salt, long seed); // fixed salt + RNG seed for deterministic tests
-        Builder policy(AnonymisationPolicy policy);  // roles, strategies, auto-infer, cardinality gate
+        Builder policy(AnonymisationPolicy policy);  // roles, strategies, auto-infer, declared sensitive distinguishing flag
         Builder stage(PipelineStage stage);
         IncognitoPipeline build();
     }

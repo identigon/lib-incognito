@@ -92,19 +92,17 @@ public final class SchemaDiscoveryStage implements PipelineStage {
             }
 
             if (tablePolicy.column(column).isEmpty()) {
-                if (!autoInfer) {
-                    throw new IncognitoException.ConfigException(
-                        "Fail-closed: column '" + column + "' in table '" + table.tableName()
-                            + "' has no declared ColumnRole in the policy. "
-                            + "Either classify it explicitly or enable autoInfer (opt-in).");
-                }
-                
-                // autoInfer is opt-in only — it suggests roles but never silently assigns.
-                inferrer.inferRole(column).ifPresent(inferred -> {
-                    tableSuggestions.add(new io.github.dconneely.incognito.api.AnonymisationReport.InferSuggestion(
-                        column, inferred.role(), inferred.heuristic()
-                    ));
-                });
+                // Auto-inference only SUGGESTS a role; it never silently assigns one, so an
+                // unclassified column ALWAYS fails-closed (SPEC §7.2) — it must never pass through
+                // as real data. With autoInfer on, the suggestion is added to the message to help.
+                var inferred = inferrer.inferRole(column);
+                String hint = inferred
+                    .map(r -> " (auto-infer suggests " + r.role() + " via " + r.heuristic() + ")")
+                    .orElse("");
+                throw new IncognitoException.ConfigException(
+                    "Fail-closed: column '" + column + "' in table '" + table.tableName()
+                        + "' has no declared ColumnRole in the policy" + hint
+                        + ". Classify it explicitly — auto-infer only suggests, never assigns.");
             }
         }
         allSuggestions.put(table.tableName(), tableSuggestions);
