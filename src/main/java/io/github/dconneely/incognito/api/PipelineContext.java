@@ -1,5 +1,6 @@
 package io.github.dconneely.incognito.api;
 
+import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import java.util.Map;
 import javax.sql.DataSource;
 
@@ -11,5 +12,7 @@ public interface PipelineContext {
     DataSource target();
     KeyTranslationStore keyStore();
     AttributeCascadeStore cascadeStore();
+    io.github.dconneely.alterego.AlterEgo alterEgo();
+    AnonymisationPolicy policy();
     Map<String, Object> attributes();
 }

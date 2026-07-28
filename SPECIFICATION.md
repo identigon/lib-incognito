@@ -421,3 +421,137 @@ v1.0 targets **PostgreSQL** only; `GenericDialectHandler` is an uncertified ANSI
 | :--- | :--- | :--- | :--- |
 | **PostgreSQL** (Tier-1) | `reWriteBatchedInserts=true` | `SELECT setval('seq', max_val)` | `SET session_replication_role='replica'` (superuser) or `ALTER TABLE tbl DISABLE TRIGGER USER` (owner fallback); `OVERRIDING SYSTEM VALUE` |
 | **Generic ANSI** (uncertified) | `executeBatch()` | dialect fallback | standard JDBC batching |
+
+---
+
+## Appendix A — `lib-alterego` integration cheat-sheet
+
+Verified against `../lib-alterego` (artifact `io.github.dconneely:alterego`). An implementer should not guess this API.
+
+**Construction (once per run, immutable & thread-safe):**
+```java
+AlterEgo ae = AlterEgo.builder()
+    .salt(secretSaltBytes)            // ≥16 bytes; Incognito owns/zeroes it (§5.1)
+    .locale(locale)                   // default Locale.UK
+    .mappingStore(new InMemoryMappingStore())  // required for .unique()/.stored()
+    .rawMappingKeys(false)            // never true — keys must be HMAC(salt,·), not plaintext
+    .build();
+```
+
+**Applying a transformation.** `Transformation<T> extends java.util.function.Function<T,T>` — you **`bind` once and `.apply(value)` per row**:
+```java
+Transformation<String> email = ae.emailAddress();   // bind once (reuse across all rows)
+String fake = email.apply(sourceEmail);              // per row; deterministic in (salt, domain, value)
+```
+
+**Strategy → AlterEgo call:**
+| Incognito strategy | AlterEgo call |
+| :--- | :--- |
+| `DirectIdStrategy.ALTEREGO_NAME` | `ae.fullName()` (or `firstName()`/`lastName()`) |
+| `ALTEREGO_EMAIL` | `ae.emailAddress()` — RFC 2606 reserved domain by default |
+| `ALTEREGO_PHONE` | `ae.phoneNumber()` |
+| `ALTEREGO_GENERIC` | `ae.pattern(shape)` (format-preserving; derive `shape` from the value's `D`/`L`/`l`/`A` character classes) or `ae.mask(maskChar, keepLast)` |
+| `UNIQUE_CANDIDATE_KEY` | any of the above **`.unique()`** — e.g. `ae.pattern(shape).unique()`. Needs the mapping store. See sequence-fallback (§5.1). |
+| `QuasiIdStrategy.SYNTHESISE` | per source type — **Appendix B** |
+| `JITTER_WITHIN_MONTH` / `_YEAR` | `ae.shiftDate(AlterEgo.DateField.MONTH \| YEAR)` |
+| `JITTER_DAYS` (standalone) | `ae.shiftDate(jitterDays)` — uniform over `[-jitterDays, +jitterDays]` |
+| `RedactionStrategy.CLEAR` | `null` (nullable) or a type-empty value |
+| `RedactionStrategy.MASK` | `ae.mask(maskChar, keepLast)` |
+| `RedactionStrategy.CONSTANT` | `ae.constant(fixedValue)` |
+
+**Custom generators** (e.g. a numeric QI): `ae.bind(domain, Integer.class, (input, ctx) -> derive(ctx.random()))` — `Strategy<T>` is a `@FunctionalInterface`; all randomness comes from `ctx.random()` (an HMAC-SHA256 stream), never `java.util.Random`.
+
+**Per-column domains.** Built-in generators use a fixed domain, so two columns with the same source value produce the same fake value (fine — deterministic). For **`.unique()` columns give each column its own `bind(domain, …)`** so uniqueness is namespaced per column, not shared across columns.
+
+**Coherent date jitter is NOT AlterEgo's record scope.** `RecordScope` (`ae.record(key)`) shares *attributes* (e.g. a region for postcode/phone coherence), but each `shiftDate` call draws an **independent** delta from `context.random()` — two date fields in one record get *different* offsets. So for interval/parent-child coherence Incognito computes **one shared delta per entity itself** (Appendix D), not via AlterEgo per-field jitter.
+
+**Nulls.** AlterEgo `NullPolicy` defaults to `PASS_THROUGH`; `null` inputs return `null`.
+
+---
+
+## Appendix B — `SYNTHESISE` by source type
+
+`SYNTHESISE` has no single generator — it depends on the column's type. **A `QUASI_ID` whose type has no mapping below and no custom strategy fails fail-closed with `ConfigException` — never a silent passthrough.**
+
+| Source SQL/Java type | `SYNTHESISE` generator |
+| :--- | :--- |
+| `DATE` / `LocalDate` (e.g. `dob`) | `ae.shiftDate(wideWindowDays)` with a window wide enough to destroy the identifying part (e.g. ±1825 days ≈ ±5 y for `dob`, so the year no longer pins age). *Not* `shiftDate(YEAR)` for `dob` (keeps the real year). |
+| `VARCHAR` postcode-shaped | `ae.postcode()` |
+| `VARCHAR` city | `ae.city()` |
+| `VARCHAR` street/address | `ae.streetAddress()` |
+| `VARCHAR` organisation | `ae.organisationName()` |
+| other `VARCHAR` | `ae.pattern(shape)` (format-preserving) |
+| numeric (`INT`/`DECIMAL`, e.g. salary) | **no built-in** → require an explicit custom `Strategy` via `bind(...)`, else `ConfigException`. Do not passthrough a real number. |
+| `TIMESTAMP` / `LocalDateTime` | `ae.shiftDateTime(...)` (day + time components) |
+| `boolean` / tiny enum | usually operational, not a QI; if declared QI, needs a custom strategy |
+
+---
+
+## Appendix C — Store keying convention (source keys, not surrogates)
+
+All three stores key on **SOURCE** identifiers, because during the streaming transform a child row holds its parent's *source* FK value, and surrogates are only assigned as rows are processed.
+
+- **`KeyTranslationStore`** — `put(table, sourcePk, newSurrogate)`. FK rewrite: the child's source FK value *is* the parent's source PK, so `get(parentTable, childSourceFkValue)` yields the new surrogate to write. Composite keys use `CompositeKey` as the id.
+- **`AttributeCascadeStore.put/get`** — keyed `(parentTable, sourceParentId, attr)`; a parent publishes the value it will actually load (fabricated if the attribute is itself fabricated), and the child reads it by its source FK value.
+- **`putJitterDelta/getJitterDelta`** — keyed `(entityTable, sourceEntityId) → deltaDays`; a child reads its parent's delta by the source FK value.
+
+Invariant: **anything a child looks up about its parent is keyed by the source FK value the child already holds.**
+
+---
+
+## Appendix D — Orchestration, per-row dispatch, cyclic-FK load, and default constants
+
+**Default constants** (all overridable): streaming `fetchSize = 5000`; `maxCategoricalCardinality = 64`; `JITTER_DAYS` default window if unspecified = ±14 days; `mask` default `keepLast = 0`, `maskChar = '*'`; per-period volume tolerance in `VerificationStage` = **±2%** of the source bucket count (min ±1 row); coherent-delta window = the column's `jitterDays` (default ±14).
+
+**`execute()` orchestration (pseudocode):**
+```
+salt = generate/zero-managed (§5.1); ae = buildAlterEgo(salt)
+ctx  = new PipelineContext(source, target, policy, keyStore, cascadeStore, ae, dependencyGraph)
+try {
+    report = SchemaDiscoveryStage.run(ctx)          // metadata, roles(fail-closed), DAG, cardinality gate
+    for table in ctx.dag.topologicalOrder():         // parents before children
+        rows = TableTransformStage.transform(table, ctx)   // per-row dispatch, streamed
+        TargetDatabaseLoadStage.load(table, rows, ctx)     // batch insert; defer cyclic FKs
+    resolveDeferredCyclicFKs(ctx)                    // 2-pass UPDATE
+    VerificationStage.run(ctx, report)               // integrity + fictionality + volumes
+    return new PipelineResult(true, …, report)
+} catch (Exception e) {
+    IncognitoCleanUpHandler.compensate(ctx)          // re-enable triggers/FKs, resync seq, truncate
+    throw e
+} finally { zero(salt); ae = null; /* drop reference for GC — AlterEgo has no clear() (§5.1) */ }
+```
+
+**Per-row transform dispatch (per column, by role):**
+```
+switch (columnRole):
+  PRIMARY_KEY          -> newPk = surrogate(strategy); keyStore.put(table, sourcePk, newPk)
+  FOREIGN_KEY          -> write keyStore.get(refTable, sourceFkValue)         // may be a placeholder if cyclic
+  DIRECT_ID            -> write directIdTransform(strategy).apply(value)
+  UNIQUE_CANDIDATE_KEY -> write directIdTransform(strategy).unique().apply(value)   // seq-fallback on collision
+  QUASI_ID (standalone)-> write quasiIdTransform(strategy).apply(value)             // Appendix A/B
+  QUASI_ID (coherence group)-> delta = cascadeStore.getJitterDelta(entityTable, entitySourceId)
+                                        .orElseGet(() -> { d = deltaFor(entity); cascadeStore.putJitterDelta(...); return d; });
+                               write value.plusDays(delta)                          // SAME delta for every group member
+  SENSITIVE            -> if kept: write value; else apply QuasiId/Redaction strategy
+  INHERITED_ATTRIBUTE  -> write cascadeStore.get(rootTable, rootSourceId(row), attr)   // §6.1 root-ancestor
+  PAYLOAD              -> write value
+  GENERATED_COLUMN     -> omit from INSERT
+```
+`deltaFor(entity)` is one salt-keyed, deterministic day-offset per entity (e.g. derive it by applying `ae.shiftDate(window)` to a per-entity anchor date and taking the offset), applied uniformly to every date in the group — this is what preserves orderings and parent-child windows exactly.
+
+**Cyclic-FK load (Tarjan SCC + placeholder / 2-pass):**
+```
+scc = tarjan(fkGraph)                       // strongly-connected components = FK cycles
+order = topologicalOrder(condense(scc))     // process acyclic condensation parents-first
+for each table (in order):
+  for each NOT NULL FK that points inside the same SCC (a cycle):
+      insert the row with a PLACEHOLDER surrogate for that FK   // FK enforcement is off (replica role)
+      record (table, newPk, fkColumn, realTargetSourceId) for pass 2
+  else: insert normally with the mapped surrogate
+// Pass 2, after all inserts:
+for each deferred (table, newPk, fkColumn, realTargetSourceId):
+      UPDATE table SET fkColumn = keyStore.get(targetTable, realTargetSourceId) WHERE pk = newPk
+// A cycle with no nullable edge and no way to break is an IncognitoException.SchemaException.
+```
+
+These are reference shapes, not the only valid implementation — but they pin the decisions (source-key stores, one-delta-per-entity coherence, placeholder+2-pass ordering) that are easy to get subtly and silently wrong.

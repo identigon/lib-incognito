@@ -94,7 +94,33 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
         if (saltMode == null) {
             saltMode = SaltMode.EPHEMERAL; // default: fresh secret salt per run
         }
-        return new StubPipeline();
+
+        if (saltMode == SaltMode.EPHEMERAL) {
+            byte[] ephemeral = new byte[32];
+            new java.security.SecureRandom().nextBytes(ephemeral);
+            this.salt = ephemeral;
+        }
+
+        io.github.dconneely.alterego.store.MappingStore alterEgoStore =
+            new io.github.dconneely.alterego.store.InMemoryMappingStore();
+
+        io.github.dconneely.alterego.AlterEgo alterEgo = io.github.dconneely.alterego.AlterEgo.builder()
+            .salt(this.salt)
+            .locale(this.locale)
+            .rawMappingKeys(false)
+            .mappingStore(alterEgoStore)
+            .build();
+
+        KeyTranslationStore resolvedKeyStore = this.keyStore != null
+            ? this.keyStore
+            : new io.github.dconneely.incognito.core.InMemoryKeyTranslationStore();
+
+        PipelineContext context = new io.github.dconneely.incognito.core.DefaultPipelineContext(
+            source, target, resolvedKeyStore, null, alterEgo, policy,
+            new java.util.concurrent.ConcurrentHashMap<>()
+        );
+
+        return new io.github.dconneely.incognito.core.DefaultIncognitoPipeline(context, stages, this.salt);
     }
 
     // The three salt modes are mutually exclusive (SPEC §5.1).
@@ -104,15 +130,5 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
                 "salt modes are mutually exclusive: " + saltMode + " already set, cannot also set " + mode);
         }
         saltMode = mode;
-    }
-
-    /** Placeholder pipeline: configuration is validated, but stage execution is pending. */
-    private static final class StubPipeline implements IncognitoPipeline {
-        @Override
-        public PipelineResult execute() {
-            throw new UnsupportedOperationException(
-                "IncognitoPipeline.execute() is not yet implemented (Phases 2-6); "
-                    + "the builder API is in place, the stages are pending.");
-        }
     }
 }

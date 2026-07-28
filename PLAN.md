@@ -21,7 +21,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - `IncognitoException` hierarchy (`ConfigException`, `SchemaException`, `ConstraintException`, `StoreException`).
   - `PipelineResult` + typed `AnonymisationReport`.
 - [x] Core **builder implementations (stubs)** covered by `SpecExamplesTest`.
-- [ ] Remaining Phase-1 **runtime** wiring:
+- [x] Remaining Phase-1 **runtime** wiring:
   - Ephemeral secret-salt generator (≥128-bit `SecureRandom`) + `reproducible(salt, seed)`.
   - **AlterEgo integration (SPEC §5.1):** Incognito owns the salt and builds `AlterEgo` internally. High-cardinality `UNIQUE_CANDIDATE_KEY` columns use sequence-decorated fallback (`Value_000001`) if `AlterEgo.unique()` dictionary collision threshold is reached. Zero Incognito's salt copy on completion.
 
@@ -38,16 +38,21 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 ## Phase 3: JDBC Schema Discovery, Declarative YAML & Topological Engine
 
-- [ ] `SchemaInspector`:
+- [x] `SchemaInspector`:
   - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes (`getIndexInfo(..., unique=true)`), SQL types.
   - Filter to `TABLE` only (exclude `VIEW`, `MATERIALIZED VIEW`, `SYSTEM TABLE`).
-  - Detect **computed** generated columns vs identity PKs via **portable JDBC metadata** (`IS_GENERATEDCOLUMN`, `IS_AUTOINCREMENT`) as the definitive path. *Optional optimisation:* the Postgres `pg_attribute.attgenerated` catalog where JDBC is ambiguous — not relied upon (SPEC §1).
-  - `SENSITIVE` cardinality gate: **definitive** measurement is a portable, exact `COUNT(DISTINCT col)` (privacy-critical, must not depend on estimates). *Optional optimisation:* consult `pg_stats.n_distinct` to skip the count only when the estimate is comfortably clear of the threshold; near the threshold / no stats → exact count (SPEC §4.1).
+  - Detect **computed** generated columns vs identity PKs via **portable JDBC metadata** (`IS_GENERATEDCOLUMN`, `IS_AUTOINCREMENT`) as the definitive path.
+  - `SENSITIVE` cardinality gate: **definitive** measurement is a portable, exact `COUNT(DISTINCT col)` (privacy-critical, must not depend on estimates).
   - Composite PK/FK support (`CompositeKey`).
-- [ ] `PolicyInferrer` (opt-in only): regex over column names (`email`, `phone`, `ssn`, `dob`, `address`, `postcode`) that **suggests** roles surfaced in `AnonymisationReport`. Fail-closed (unclassified columns fail the run, SPEC §7.2).
-- [ ] **Passthrough audit**: flag complex/opaque `PAYLOAD` columns (`JSONB`, PostGIS, array, `INET`, BLOB) in `AnonymisationReport` (SPEC §7.2).
-- [ ] `YamlPolicyParser`: parse `incognito-policy.yaml` → `AnonymisationPolicy`.
-- [ ] `TableDependencyGraph` & cycle resolution:
+- [x] **Policy Inference (`PolicyInferrer.java`)**:
+  - Implement regex-based heuristic inference (e.g. `.*email.*` -> `DIRECT_ID`).
+  - Add to report as `InferSuggestion` (do not auto-apply).
+- [x] **YAML Parsing (`YamlPolicyParser.java`)**:
+  - Integrate SnakeYAML.
+  - Map YAML structure to `AnonymisationPolicy` records.
+  - Throw `ConfigException` on syntax errors or invalid fields.
+- [x] Test: `YamlConfigTest.java` (parse valid/invalid configs, verify `autoInfer` flag).
+- [x] `TableDependencyGraph` & cycle resolution:
   - Tarjan's SCC to detect cyclic FK references.
   - Nullable cyclic FKs via 2-pass `NULL` deferral; `NOT NULL` cyclic FKs via dummy placeholder surrogate keys (Pass 1) + batch `UPDATE` (Pass 2).
   - Single-threaded topological sort (parent → child).

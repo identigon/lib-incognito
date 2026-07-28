@@ -14,22 +14,20 @@ public class PolicyInferrer {
     private static final Pattern DOB_PATTERN = Pattern.compile("(?i).*(dob|birth_?date|date_of_birth).*");
     private static final Pattern SSN_PATTERN = Pattern.compile("(?i).*(ssn|social_?security|tax_?id|nhs_?num).*");
 
+    public record InferredRole(ColumnRole role, String heuristic) {}
+
     /**
-     * Infers a ColumnRole for a column based on its name and SQL type.
+     * Infers a ColumnRole for a column based on its name.
      *
      * @param columnName Name of the database column.
-     * @return Suggested ColumnRole.
+     * @return Suggested ColumnRole and the heuristic matched, or empty if no heuristic matches.
      */
-    public ColumnRole inferRole(String columnName) {
-        if (EMAIL_PATTERN.matcher(columnName).matches() ||
-            PHONE_PATTERN.matcher(columnName).matches() ||
-            NAME_PATTERN.matcher(columnName).matches() ||
-            SSN_PATTERN.matcher(columnName).matches()) {
-            return ColumnRole.DIRECT_ID;
-        }
-        if (DOB_PATTERN.matcher(columnName).matches()) {
-            return ColumnRole.QUASI_ID;
-        }
-        return ColumnRole.PAYLOAD;
+    public java.util.Optional<InferredRole> inferRole(String columnName) {
+        if (EMAIL_PATTERN.matcher(columnName).matches()) return java.util.Optional.of(new InferredRole(ColumnRole.DIRECT_ID, "EMAIL_PATTERN"));
+        if (PHONE_PATTERN.matcher(columnName).matches()) return java.util.Optional.of(new InferredRole(ColumnRole.DIRECT_ID, "PHONE_PATTERN"));
+        if (NAME_PATTERN.matcher(columnName).matches()) return java.util.Optional.of(new InferredRole(ColumnRole.DIRECT_ID, "NAME_PATTERN"));
+        if (SSN_PATTERN.matcher(columnName).matches()) return java.util.Optional.of(new InferredRole(ColumnRole.DIRECT_ID, "SSN_PATTERN"));
+        if (DOB_PATTERN.matcher(columnName).matches()) return java.util.Optional.of(new InferredRole(ColumnRole.QUASI_ID, "DOB_PATTERN"));
+        return java.util.Optional.empty();
     }
 }

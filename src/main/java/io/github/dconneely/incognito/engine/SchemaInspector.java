@@ -29,6 +29,72 @@ public class SchemaInspector {
      * @throws IncognitoException.SchemaException if JDBC inspection fails.
      */
     public List<TableMetadata> inspect(DataSource dataSource) throws IncognitoException.SchemaException {
-        throw new UnsupportedOperationException("To be implemented in Phase 2");
+        List<TableMetadata> tables = new java.util.ArrayList<>();
+        try (Connection connection = dataSource.getConnection()) {
+            java.sql.DatabaseMetaData meta = connection.getMetaData();
+            String catalog = connection.getCatalog();
+            String schema = connection.getSchema();
+
+            try (java.sql.ResultSet tablesRs = meta.getTables(catalog, schema, "%", new String[]{"TABLE"})) {
+                while (tablesRs.next()) {
+                    String tableName = tablesRs.getString("TABLE_NAME");
+                    
+                    List<String> columns = new java.util.ArrayList<>();
+                    List<String> generatedColumns = new java.util.ArrayList<>();
+                    List<String> primaryKeyColumns = new java.util.ArrayList<>();
+                    Map<String, String> foreignKeys = new java.util.HashMap<>();
+                    List<String> uniqueCandidateKeys = new java.util.ArrayList<>();
+
+                    try (java.sql.ResultSet pksRs = meta.getPrimaryKeys(catalog, schema, tableName)) {
+                        Map<Short, String> pkMap = new java.util.TreeMap<>();
+                        while (pksRs.next()) {
+                            pkMap.put(pksRs.getShort("KEY_SEQ"), pksRs.getString("COLUMN_NAME"));
+                        }
+                        primaryKeyColumns.addAll(pkMap.values());
+                    }
+
+                    try (java.sql.ResultSet colsRs = meta.getColumns(catalog, schema, tableName, "%")) {
+                        while (colsRs.next()) {
+                            String colName = colsRs.getString("COLUMN_NAME");
+                            columns.add(colName);
+                            
+                            String isAutoIncrement = colsRs.getString("IS_AUTOINCREMENT");
+                            String isGeneratedColumn = colsRs.getString("IS_GENERATEDCOLUMN");
+                            
+                            boolean isAutoInc = "YES".equalsIgnoreCase(isAutoIncrement);
+                            boolean isGenerated = "YES".equalsIgnoreCase(isGeneratedColumn);
+                            
+                            if (isGenerated && !(isAutoInc && primaryKeyColumns.contains(colName))) {
+                                generatedColumns.add(colName);
+                            }
+                        }
+                    }
+
+                    try (java.sql.ResultSet fksRs = meta.getImportedKeys(catalog, schema, tableName)) {
+                        while (fksRs.next()) {
+                            String fkColumnName = fksRs.getString("FKCOLUMN_NAME");
+                            String pkTableName = fksRs.getString("PKTABLE_NAME");
+                            foreignKeys.put(fkColumnName, pkTableName);
+                        }
+                    }
+
+                    try (java.sql.ResultSet idxRs = meta.getIndexInfo(catalog, schema, tableName, true, false)) {
+                        while (idxRs.next()) {
+                            String colName = idxRs.getString("COLUMN_NAME");
+                            if (colName != null && !primaryKeyColumns.contains(colName)) {
+                                if (!uniqueCandidateKeys.contains(colName)) {
+                                    uniqueCandidateKeys.add(colName);
+                                }
+                            }
+                        }
+                    }
+
+                    tables.add(new TableMetadata(tableName, primaryKeyColumns, foreignKeys, uniqueCandidateKeys, columns, generatedColumns));
+                }
+            }
+        } catch (java.sql.SQLException e) {
+            throw new IncognitoException.SchemaException("Failed to inspect schema", e);
+        }
+        return tables;
     }
 }
