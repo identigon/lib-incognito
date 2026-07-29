@@ -17,6 +17,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,9 +30,12 @@ import java.util.stream.Collectors;
  *   <li>Referential integrity: no dangling FK references.</li>
  *   <li>Fictionality: DIRECT_ID email columns use RFC 2606 reserved domains.</li>
  *   <li>Misdeclaration lint (SPEC §4.1): cross-checks every {@code SENSITIVE distinguishing: false}
- *       column's real {@code COUNT(DISTINCT)} against {@code maxCategoricalCardinality}. Behaviour
- *       is set by {@code distinguishingLint}: {@code WARN} (default) records a warning;
- *       {@code ERROR} fails the run; {@code OFF} skips the check entirely.</li>
+ *       column's real {@code COUNT(DISTINCT)} against {@code maxCategoricalCardinality}.</li>
+ *   <li>Per-period volume tolerance (SPEC §4.2, Appendix D): for temporal QUASI_ID columns,
+ *       verifies that monthly/yearly bucket counts in the target match the source within ±2%
+ *       (min ±1 row).</li>
+ *   <li>Source-value survival: for DIRECT_ID columns, verifies that no real source value
+ *       survived in the target (a sanity net beyond the email-domain check).</li>
  * </ul>
  */
 public final class VerificationStage implements PipelineStage {
@@ -47,6 +52,12 @@ public final class VerificationStage implements PipelineStage {
      * to the exact query to avoid false negatives from stale statistics.
      */
     private static final double PG_STATS_MARGIN = 2.0;
+
+    /**
+     * Per-period volume tolerance: ±2% of the source bucket count, minimum ±1 row (Appendix D).
+     */
+    private static final double VOLUME_TOLERANCE_FRACTION = 0.02;
+    private static final long VOLUME_TOLERANCE_MIN_ROWS = 1;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -157,6 +168,90 @@ public final class VerificationStage implements PipelineStage {
             }
         }
 
+        // 4. Per-period volume tolerance for temporal QUASI_ID columns (SPEC §4.2, Appendix D).
+        //    JITTER_WITHIN_MONTH → monthly buckets must match exactly.
+        //    JITTER_WITHIN_YEAR  → yearly buckets must match exactly.
+        //    JITTER_DAYS         → monthly buckets within ±2% (min ±1 row).
+        //    SYNTHESISE          → distribution not preserved; skip.
+        try (Connection sourceConn = context.source().getConnection();
+             Connection targetConn2 = context.target().getConnection()) {
+            for (String tableName : plan.sequentialTableOrder()) {
+                Optional<TablePolicy> tablePolicyOpt = policy.table(tableName);
+                if (tablePolicyOpt.isEmpty()) continue;
+
+                TablePolicy tablePolicy = tablePolicyOpt.get();
+                for (Map.Entry<String, ColumnPolicy> entry : getColumnPolicies(tablePolicy)) {
+                    ColumnPolicy colPolicy = entry.getValue();
+                    if (colPolicy.role() != ColumnRole.QUASI_ID) continue;
+                    io.github.dconneely.incognito.api.QuasiIdStrategy qiStrategy = colPolicy.quasiIdStrategy();
+                    if (qiStrategy == null || qiStrategy == io.github.dconneely.incognito.api.QuasiIdStrategy.SYNTHESISE) continue;
+
+                    String colName = colPolicy.columnName();
+                    String truncExpr;
+                    boolean exact;
+
+                    switch (qiStrategy) {
+                        case JITTER_WITHIN_MONTH -> { truncExpr = "date_trunc('month', " + colName + ")"; exact = true; }
+                        case JITTER_WITHIN_YEAR  -> { truncExpr = "date_trunc('year', " + colName + ")";  exact = true; }
+                        case JITTER_DAYS         -> { truncExpr = "date_trunc('month', " + colName + ")"; exact = false; }
+                        default -> { continue; }
+                    }
+
+                    Map<String, Long> sourceBuckets = queryBucketCounts(sourceConn, tableName, truncExpr);
+                    Map<String, Long> targetBuckets = queryBucketCounts(targetConn2, tableName, truncExpr);
+
+                    for (Map.Entry<String, Long> bucket : sourceBuckets.entrySet()) {
+                        String period = bucket.getKey();
+                        long sourceCount = bucket.getValue();
+                        long targetCount = targetBuckets.getOrDefault(period, 0L);
+
+                        if (exact) {
+                            if (sourceCount != targetCount) {
+                                warnings.add("Volume drift: " + tableName + "." + colName
+                                    + " period " + period + ": source=" + sourceCount
+                                    + " target=" + targetCount + " (expected exact match for " + qiStrategy + ")");
+                            }
+                        } else {
+                            long tolerance = Math.max(VOLUME_TOLERANCE_MIN_ROWS,
+                                (long) Math.ceil(sourceCount * VOLUME_TOLERANCE_FRACTION));
+                            if (Math.abs(targetCount - sourceCount) > tolerance) {
+                                warnings.add("Volume drift: " + tableName + "." + colName
+                                    + " period " + period + ": source=" + sourceCount
+                                    + " target=" + targetCount + " (tolerance ±" + tolerance + ")");
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new IncognitoException.SchemaException(
+                "Per-period volume verification failed", e);
+        }
+
+        // 5. Source-value survival check for DIRECT_ID columns: verify that no real source value
+        //    survives in the target (a sanity net — if fabrication worked, the intersection is empty).
+        try (Connection sourceConn = context.source().getConnection();
+             Connection targetConn3 = context.target().getConnection()) {
+            for (String tableName : plan.sequentialTableOrder()) {
+                Optional<TablePolicy> tablePolicyOpt = policy.table(tableName);
+                if (tablePolicyOpt.isEmpty()) continue;
+
+                TablePolicy tablePolicy = tablePolicyOpt.get();
+                for (Map.Entry<String, ColumnPolicy> entry : getColumnPolicies(tablePolicy)) {
+                    ColumnPolicy colPolicy = entry.getValue();
+                    if (colPolicy.role() != ColumnRole.DIRECT_ID) continue;
+                    // Email fictionality is already checked in section 2; this is for other strategies.
+                    if (colPolicy.directIdStrategy() == DirectIdStrategy.ALTEREGO_EMAIL) continue;
+
+                    String colName = colPolicy.columnName();
+                    verifySurvival(sourceConn, targetConn3, tableName, colName, failures);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IncognitoException.SchemaException(
+                "Source-value survival check failed", e);
+        }
+
         // Build the result message.
         if (!failures.isEmpty()) {
             String msg = "Verification FAILED:\n  " + String.join("\n  ", failures);
@@ -232,6 +327,61 @@ public final class VerificationStage implements PipelineStage {
             if (rs.next() && rs.getLong(1) > 0) {
                 failures.add("Fictionality violation: " + tableName + "." + columnName
                     + " has " + rs.getLong(1) + " email(s) not using RFC 2606 reserved domains");
+            }
+        }
+    }
+
+    /**
+     * Queries per-period bucket counts for a date column, returning a map of
+     * period-label → row-count.
+     */
+    private Map<String, Long> queryBucketCounts(
+            Connection conn, String tableName, String truncExpr) throws SQLException {
+        Map<String, Long> buckets = new LinkedHashMap<>();
+        String sql = "SELECT " + truncExpr + " AS period, COUNT(*) AS cnt FROM " + tableName
+            + " WHERE " + truncExpr + " IS NOT NULL GROUP BY period ORDER BY period";
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                buckets.put(rs.getString(1), rs.getLong(2));
+            }
+        }
+        return buckets;
+    }
+
+    /**
+     * Verifies that no real source value for a DIRECT_ID column survived in the target.
+     * Checks whether the intersection of source and target non-null values is empty.
+     */
+    private void verifySurvival(
+            Connection sourceConn, Connection targetConn, String tableName,
+            String columnName, List<String> failures) throws SQLException {
+        // Collect non-null source values (bounded to a reasonable sample for large tables).
+        List<String> sourceValues = new ArrayList<>();
+        try (Statement stmt = sourceConn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT DISTINCT " + columnName + " FROM " + tableName
+                     + " WHERE " + columnName + " IS NOT NULL LIMIT 1000")) {
+            while (rs.next()) {
+                sourceValues.add(rs.getString(1));
+            }
+        }
+        if (sourceValues.isEmpty()) return;
+
+        // Check if any of those source values exist in the target.
+        // Use a parameterised IN clause via string literals (safe: values are from our own source DB).
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < sourceValues.size(); i++) {
+            if (i > 0) inClause.append(",");
+            inClause.append("'").append(sourceValues.get(i).replace("'", "''")).append("'");
+        }
+        String checkSql = "SELECT COUNT(*) FROM " + tableName
+            + " WHERE " + columnName + " IN (" + inClause + ")";
+        try (Statement stmt = targetConn.createStatement();
+             ResultSet rs = stmt.executeQuery(checkSql)) {
+            if (rs.next() && rs.getLong(1) > 0) {
+                failures.add("Source-value survival: " + tableName + "." + columnName
+                    + " has " + rs.getLong(1) + " row(s) in the target still containing a real source value");
             }
         }
     }

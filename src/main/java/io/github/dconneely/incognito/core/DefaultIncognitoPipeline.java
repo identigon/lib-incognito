@@ -45,8 +45,14 @@ public final class DefaultIncognitoPipeline implements IncognitoPipeline {
                 rowsLoaded,
                 tablesProcessed,
                 Duration.ofNanos(System.nanoTime() - startNanos),
-                new io.github.dconneely.incognito.api.AnonymisationReport(Collections.emptyList(), stageResults)
+                io.github.dconneely.incognito.core.AnonymisationReportBuilder.build(context, stageResults)
             );
+        } catch (Exception e) {
+            io.github.dconneely.incognito.core.IncognitoCleanUpHandler.compensate(context);
+            if (e instanceof IncognitoException) {
+                throw (IncognitoException) e;
+            }
+            throw new IncognitoException("Pipeline execution failed", e);
         } finally {
             if (saltToClear != null) {
                 Arrays.fill(saltToClear, (byte) 0);

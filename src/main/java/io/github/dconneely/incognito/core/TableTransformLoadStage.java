@@ -75,27 +75,27 @@ public final class TableTransformLoadStage implements PipelineStage {
         boolean anyInheritance = !publishTargets.isEmpty();
 
         long totalRows = 0;
+        java.util.Map<String, Long> rowsPerTable = new java.util.LinkedHashMap<>();
+        List<BulkDatabaseLoadStage.DeferredUpdate> deferredUpdates = new java.util.ArrayList<>();
 
-        try {
-            for (String tableName : plan.sequentialTableOrder()) {
-                SchemaInspector.TableMetadata tableMeta = metadataByName.get(tableName);
-                if (tableMeta == null) continue;
+        for (String tableName : plan.sequentialTableOrder()) {
+            SchemaInspector.TableMetadata tableMeta = metadataByName.get(tableName);
+            if (tableMeta == null) continue;
 
-                Optional<TablePolicy> tablePolicyOpt = policy.table(tableName);
-                if (tablePolicyOpt.isEmpty()) continue; // Skip tables not in policy
+            Optional<TablePolicy> tablePolicyOpt = policy.table(tableName);
+            if (tablePolicyOpt.isEmpty()) continue; // Skip tables not in policy
 
-                TablePolicy tablePolicy = tablePolicyOpt.get();
-                long rowCount = processTable(context, tableMeta, tablePolicy, alterEgo, keyStore,
-                    metadataByName, publishTargets, anyInheritance);
-                totalRows += rowCount;
-            }
-
-            // Resync sequences on target.
-            resyncSequences(context, plan.sequentialTableOrder(), metadataByName);
-
-        } catch (SQLException e) {
-            throw new IncognitoException.SchemaException("Error during transform/load", e);
+            TablePolicy tablePolicy = tablePolicyOpt.get();
+            long rowCount = processTable(context, tableMeta, tablePolicy, alterEgo, keyStore,
+                metadataByName, publishTargets, anyInheritance, plan.cyclicTablesToUpdatePass2(), deferredUpdates);
+            totalRows += rowCount;
+            rowsPerTable.put(tableName, rowCount);
         }
+
+        // Pass 2: resolve deferred cyclic FKs
+        BulkDatabaseLoadStage.resolveDeferredCyclicFKs(context, deferredUpdates);
+
+        context.attributes().put("incognito.metrics.rowsPerTable", rowsPerTable);
 
         return new StageResult(
             "TableTransformLoadStage",
@@ -113,7 +113,9 @@ public final class TableTransformLoadStage implements PipelineStage {
             KeyTranslationStore keyStore,
             Map<String, SchemaInspector.TableMetadata> metadataByName,
             java.util.Set<String> publishTargets,
-            boolean anyInheritance) throws IncognitoException {
+            boolean anyInheritance,
+            List<String> cyclicTables,
+            List<BulkDatabaseLoadStage.DeferredUpdate> deferredUpdates) throws IncognitoException {
 
         String tableName = tableMeta.tableName();
 
@@ -127,7 +129,7 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         // Build transformations for each column.
         List<ColumnTransformer> transformers = columnsToProcess.stream()
-            .map(col -> buildTransformer(col, tablePolicy, tableMeta, alterEgo, metadataByName))
+            .map(col -> buildTransformer(col, tablePolicy, tableMeta, alterEgo, metadataByName, cyclicTables))
             .toList();
 
         // Columns of THIS table whose fabricated value a descendant will inherit (SPEC §6.1) — publish these.
@@ -146,7 +148,6 @@ public final class TableTransformLoadStage implements PipelineStage {
             && tableMeta.identityColumns().contains(tableMeta.primaryKeyColumns().getFirst());
 
         String selectSql = "SELECT " + String.join(", ", columnsToProcess) + " FROM " + tableName;
-        String insertSql = buildInsertSql(tableName, columnsToProcess, hasIdentityPk);
 
         AtomicLong surrogateCounter = new AtomicLong(1);
         long rowCount = 0;
@@ -156,20 +157,23 @@ public final class TableTransformLoadStage implements PipelineStage {
 
             sourceConn.setAutoCommit(false);
             targetConn.setAutoCommit(false);
-
-            // Suppress FK enforcement + user triggers on the SAME connection used for the inserts
-            // (session_replication_role is per-session; it resets when this connection closes).
-            trySetReplicaRole(targetConn);
+            
+            io.github.dconneely.incognito.engine.DialectHandler dialect = getDialectHandler(targetConn);
+            String pkColumn = tableMeta.primaryKeyColumns().isEmpty() ? null : tableMeta.primaryKeyColumns().getFirst();
 
             try (Statement stmt = sourceConn.createStatement()) {
                 stmt.setFetchSize(FETCH_SIZE);
-                try (ResultSet rs = stmt.executeQuery(selectSql)) {
+                try (ResultSet rs = stmt.executeQuery(selectSql);
+                     BulkDatabaseLoadStage loader = new BulkDatabaseLoadStage(dialect, targetConn, tableName, columnsToProcess, hasIdentityPk, pkColumn)) {
+                     
                     ResultSetMetaData rsMeta = rs.getMetaData();
+                    Object[] rowBuf = new Object[columnsToProcess.size()];
 
-                    try (PreparedStatement insertStmt = targetConn.prepareStatement(insertSql)) {
-                        int batchCount = 0;
+                    while (rs.next()) {
+                            // Track deferred updates for this row
+                            List<PendingUpdate> rowDeferred = new java.util.ArrayList<>();
+                            Object targetPk = null;
 
-                        while (rs.next()) {
                             // The row's own source PK (single-column PK only) — the key everything is
                             // stored under: PK translation, published attributes, and FK linkage.
                             Object sourcePk = null;
@@ -200,12 +204,21 @@ public final class TableTransformLoadStage implements PipelineStage {
 
                                 Object originalValue = rs.getObject(i + 1);
 
-                                Object transformedValue = transformer.transform(
-                                    originalValue, rs, sourcePk, sqlType, surrogateCounter, context, tableMeta);
+                                Object transformedValue;
+                                try {
+                                    transformedValue = transformer.transform(
+                                        originalValue, rs, sourcePk, sqlType, surrogateCounter, context, tableMeta);
+                                } catch (CyclicFkException e) {
+                                    // Defer this update. We will create the DeferredUpdate after the row loop 
+                                    // when the target PK is definitely known.
+                                    rowDeferred.add(new PendingUpdate(colName, e.referencedTable, e.sourceFkValue));
+                                    transformedValue = getPlaceholderForType(sqlType);
+                                }
 
                                 // Record PK translation if this is a PK column.
                                 if (tableMeta.primaryKeyColumns().contains(colName) && originalValue != null) {
                                     keyStore.put(tableName, originalValue, transformedValue);
+                                    targetPk = transformedValue;
                                 }
 
                                 // Publish the fabricated value for descendants to inherit (SPEC §6.1).
@@ -213,23 +226,21 @@ public final class TableTransformLoadStage implements PipelineStage {
                                     context.cascadeStore().put(tableName, sourcePk, colName, transformedValue);
                                 }
 
-                                insertStmt.setObject(i + 1, transformedValue);
+                                rowBuf[i] = transformedValue;
                             }
 
-                            insertStmt.addBatch();
-                            batchCount++;
-                            rowCount++;
-
-                            if (batchCount >= BATCH_SIZE) {
-                                insertStmt.executeBatch();
-                                batchCount = 0;
+                            if (!rowDeferred.isEmpty() && targetPk != null) {
+                                for (PendingUpdate pu : rowDeferred) {
+                                    deferredUpdates.add(new BulkDatabaseLoadStage.DeferredUpdate(
+                                        tableName, pkColumn, targetPk, pu.colName, pu.refTable, pu.sourceFk
+                                    ));
+                                }
                             }
-                        }
 
-                        if (batchCount > 0) {
-                            insertStmt.executeBatch();
+                            loader.insertRow(rowBuf);
                         }
-                    }
+                        
+                        rowCount = loader.getRowCount();
                 }
             }
 
@@ -247,7 +258,8 @@ public final class TableTransformLoadStage implements PipelineStage {
             TablePolicy tablePolicy,
             SchemaInspector.TableMetadata tableMeta,
             AlterEgo alterEgo,
-            Map<String, SchemaInspector.TableMetadata> metadataByName) {
+            Map<String, SchemaInspector.TableMetadata> metadataByName,
+            List<String> cyclicTables) {
 
         Optional<ColumnPolicy> policyOpt = tablePolicy.column(columnName);
         if (policyOpt.isEmpty()) {
@@ -259,7 +271,7 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         return switch (role) {
             case PRIMARY_KEY -> buildPkTransformer(colPolicy);
-            case FOREIGN_KEY -> buildFkTransformer(colPolicy);
+            case FOREIGN_KEY -> buildFkTransformer(colPolicy, cyclicTables);
             case DIRECT_ID, UNIQUE_CANDIDATE_KEY -> buildDirectIdTransformer(colPolicy, alterEgo, tableMeta.tableName());
             case QUASI_ID -> buildQuasiIdTransformer(colPolicy, alterEgo, tableMeta.tableName());
             case SENSITIVE -> {
@@ -304,13 +316,19 @@ public final class TableTransformLoadStage implements PipelineStage {
         };
     }
 
-    private ColumnTransformer buildFkTransformer(ColumnPolicy colPolicy) {
+    private ColumnTransformer buildFkTransformer(ColumnPolicy colPolicy, List<String> cyclicTables) {
         String referencedTable = colPolicy.referencedTable();
         return (value, rs, pk, sqlType, counter, ctx, meta) -> {
             if (value == null) return null;
             Optional<Object> mapped = ctx.keyStore().get(referencedTable, value);
-            return mapped.orElseThrow(() -> new IncognitoException.ConstraintException(
-                "No key translation found for FK value '" + value + "' referencing table '" + referencedTable + "'"));
+            if (mapped.isPresent()) {
+                return mapped.get();
+            }
+            if (cyclicTables.contains(referencedTable)) {
+                throw new CyclicFkException(referencedTable, value);
+            }
+            throw new IncognitoException.ConstraintException(
+                "No key translation found for FK value '" + value + "' referencing table '" + referencedTable + "'");
         };
     }
 
@@ -552,29 +570,12 @@ public final class TableTransformLoadStage implements PipelineStage {
         return base.substring(0, n - width) + digits;
     }
 
-    private String buildInsertSql(String tableName, List<String> columns, boolean hasIdentityPk) {
-        String cols = String.join(", ", columns);
-        String placeholders = columns.stream().map(c -> "?").collect(Collectors.joining(", "));
-        String sql = "INSERT INTO " + tableName + " (" + cols + ") ";
-        if (hasIdentityPk) {
-            sql += "OVERRIDING SYSTEM VALUE ";
+    private io.github.dconneely.incognito.engine.DialectHandler getDialectHandler(Connection conn) throws SQLException {
+        String dbName = conn.getMetaData().getDatabaseProductName();
+        if (dbName != null && dbName.toLowerCase().contains("postgresql")) {
+            return new io.github.dconneely.incognito.engine.PostgresDialectHandler();
         }
-        sql += "VALUES (" + placeholders + ")";
-        return sql;
-    }
-
-    /**
-     * Sets {@code session_replication_role = 'replica'} on the given connection (needs superuser),
-     * suppressing FK enforcement and user triggers for that connection's inserts. The setting is
-     * per-session and resets automatically when the connection closes. If the account is not a
-     * superuser this is a no-op and the load relies on strict topological ordering.
-     */
-    private void trySetReplicaRole(Connection conn) {
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("SET session_replication_role = 'replica'");
-        } catch (SQLException ignored) {
-            // Not superuser — parents load before children by topological order.
-        }
+        return new io.github.dconneely.incognito.engine.GenericDialectHandler();
     }
 
     /**
@@ -598,37 +599,7 @@ public final class TableTransformLoadStage implements PipelineStage {
         return sb.toString();
     }
 
-    private void resyncSequences(
-            PipelineContext context,
-            List<String> tables,
-            Map<String, SchemaInspector.TableMetadata> metadataByName) throws SQLException {
-        try (Connection conn = context.target().getConnection();
-             Statement stmt = conn.createStatement()) {
-            for (String tableName : tables) {
-                SchemaInspector.TableMetadata meta = metadataByName.get(tableName);
-                if (meta == null || meta.primaryKeyColumns().isEmpty()) continue;
 
-                String pkCol = meta.primaryKeyColumns().getFirst();
-                try {
-                    // PostgreSQL: find the sequence associated with the column and resync it.
-                    ResultSet rs = stmt.executeQuery(
-                        "SELECT pg_get_serial_sequence('" + tableName + "', '" + pkCol + "')");
-                    if (rs.next()) {
-                        String seqName = rs.getString(1);
-                        if (seqName != null) {
-                            stmt.execute("SELECT setval('" + seqName + "', "
-                                + "(SELECT COALESCE(MAX(" + pkCol + "), 1) FROM " + tableName + "))");
-                        }
-                    }
-                    rs.close();
-                } catch (SQLException e) {
-                    // Non-PostgreSQL or no sequence — skip.
-                }
-            }
-            // Connection is autoCommit=true (fresh from the DataSource), so each setval already
-            // committed; an explicit commit() here would throw "Cannot commit when autoCommit is enabled".
-        }
-    }
 
     /**
      * Functional interface for per-column transformation logic.
@@ -641,4 +612,25 @@ public final class TableTransformLoadStage implements PipelineStage {
         Object transform(Object value, ResultSet rs, Object sourcePk, int sqlType, AtomicLong surrogateCounter,
                           PipelineContext ctx, SchemaInspector.TableMetadata meta) throws SQLException, IncognitoException;
     }
+
+    private static Object getPlaceholderForType(int sqlType) {
+        return switch (sqlType) {
+            case java.sql.Types.BIGINT, java.sql.Types.NUMERIC, java.sql.Types.DECIMAL -> -1L;
+            case java.sql.Types.INTEGER, java.sql.Types.SMALLINT, java.sql.Types.TINYINT -> -1;
+            case java.sql.Types.VARCHAR, java.sql.Types.CHAR, java.sql.Types.NVARCHAR -> "00000000-0000-0000-0000-000000000000";
+            default -> null;
+        };
+    }
+
+    private static class CyclicFkException extends RuntimeException {
+        final String referencedTable;
+        final Object sourceFkValue;
+        CyclicFkException(String referencedTable, Object sourceFkValue) {
+            super(null, null, false, false); // Don't build stack trace for performance
+            this.referencedTable = referencedTable;
+            this.sourceFkValue = sourceFkValue;
+        }
+    }
+
+    private record PendingUpdate(String colName, String refTable, Object sourceFk) {}
 }

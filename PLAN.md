@@ -75,7 +75,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 ### Phase 4 follow-up — tech debt
 
 - [ ] **Migrate hand-rolled value substitution into `lib-alterego`** (SPEC §1.4 delegation principle). `TableTransformLoadStage.fabricateShapePreserving(...)` performs class-preserving character substitution *inside Incognito*, which violates "Alterego fabricates fields; Incognito preserves relationships". Add a shape/class-preserving, guaranteed-fictional primitive to Alterego, publish it, and have `ALTEREGO_GENERIC` (and string-`SYNTHESISE`) delegate to it; then delete the Incognito copy. Until then it is a tracked bug, not a sanctioned exception.
-- [ ] **Type-aware redaction** (`RedactionStrategy`): `CLEAR → null` breaks a `NOT NULL` column and `CONSTANT`/`MASK` assume text; make redaction type-appropriate (via the Alterego primitives above) rather than string-only.
+- [ ] **Type-aware redaction** (`RedactionStrategy`): `CLEAR → null` breaks a `NOT NULL` column and `CONSTANT`/`MASK` assume text. These currently fail *loud* (a `SQLException` at insert, surfaced as `SchemaException`) — no silent corruption or privacy leak, so this is a robustness/usability item, not a safety one. The fix is type-appropriate, format-preserving value production, which belongs in lib-alterego (§1.4) — do it as part of the delegation migration above rather than hand-rolling a `switch(sqlType)` in Incognito.
 - [ ] **Default-on misdeclaration lint runtime** (`distinguishingLint`): the enum + config field exist, but the `COUNT(DISTINCT)` check itself is not yet wired — it lands in `VerificationStage` (Phase 6), not Phase 4.
 
 ---
