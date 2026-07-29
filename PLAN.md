@@ -23,7 +23,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 - [x] Core **builder implementations (stubs)** covered by `SpecExamplesTest`.
 - [x] Remaining Phase-1 **runtime** wiring:
   - Ephemeral secret-salt generator (≥128-bit `SecureRandom`) + `reproducible(salt, seed)`.
-  - **AlterEgo integration (SPEC §5.1):** Incognito owns the salt and builds `AlterEgo` internally. High-cardinality `UNIQUE_CANDIDATE_KEY` columns use sequence-decorated fallback (`Value_000001`) if `AlterEgo.unique()` dictionary collision threshold is reached. Zero Incognito's salt copy on completion.
+  - **AlterEgo integration (SPEC §5.1):** Incognito owns the salt and builds `AlterEgo` internally. High-cardinality `UNIQUE_CANDIDATE_KEY` columns use a length-preserving sequence fallback (zero-padded sequence overlaid on the value's tail; bare sequence for numeric columns) if `AlterEgo.unique()`'s collision threshold is reached. Zero Incognito's salt copy on completion.
 
 ---
 
@@ -47,7 +47,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes, SQL types; filter to `TABLE` only.
   - Detect **computed** generated columns (`IS_GENERATEDCOLUMN`) vs **identity** columns (`IS_AUTOINCREMENT`, now a separate `identityColumns` list driving `OVERRIDING SYSTEM VALUE`).
   - [ ] **Composite PK/FK NOT done** — FKs are modelled as `Map<fkColumn → parentTable>` (single-column only); composite keys need a richer model before Pagila/Phase 7.
-  - [ ] `SENSITIVE` handling **NOT done** — SENSITIVE is currently passed through. Phase 4 uses a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), not an automatic `COUNT(DISTINCT)` gate; the distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`).
+  - [x] `SENSITIVE` handling **done in Phase 4** — a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), validated fail-closed at config time in `SchemaDiscoveryStage` (no automatic `COUNT(DISTINCT)` gate). The distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`), whose runtime check is wired in `VerificationStage` (Phase 6, still outstanding).
 - [x] **Policy Inference (`PolicyInferrer.java`)**:
   - Implement regex-based heuristic inference (e.g. `.*email.*` -> `DIRECT_ID`).
   - Add to report as `InferSuggestion` (do not auto-apply).
@@ -63,21 +63,27 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 ## Phase 4: Transformation Model (Fabrication & Temporal Jitter)
 
-- [ ] `TableTransformStage` streaming execution (`fetchSize = 5000`):
-  - `DIRECT_ID` via `lib-alterego` (`DirectIdStrategy`); `UNIQUE_CANDIDATE_KEY` via `AlterEgo.unique()` with sequence-decorated fallback (`Value_000001`).
+- [x] `TableTransformLoadStage` streaming execution (`fetchSize = 5000`) — all roles below implemented and unit-tested. **Note:** the advanced relational paths (root-ancestor `INHERITED_ATTRIBUTE`, coherent group jitter) are covered by unit tests only; end-to-end coverage against a real inheritance/coherence schema arrives with the Phase 7 diamond benchmark.
+  - `DIRECT_ID` via `lib-alterego` (`DirectIdStrategy`); `UNIQUE_CANDIDATE_KEY` via `AlterEgo.unique()` with a **length-preserving** collision fallback (zero-padded sequence overlaid on the value's tail — never widens a fixed-width/`CHECK` column; numeric columns fall back to a bare sequence).
   - `QUASI_ID` temporal jitter (SPEC §4.2): **standalone** dates → bucket-preserving `JITTER_WITHIN_MONTH`/`_YEAR` (exact per-period volumes); **ordered/related** dates (`created_at ≤ approved_at`, contract `start`/`end`, parent-child windows) → **one shared delta per coherence group** (exact orderings/intervals, "similar" volumes). Bucket jitter does NOT preserve ordering — only the shared delta does.
-  - Cache the per-entity shared delta in `AttributeCascadeStore` (`putJitterDelta(table, id, deltaDays)`) so child event dates inherit the parent's shift and stay within parent bounds (SPEC §4.2).
+  - Cache the per-entity shared delta in `AttributeCascadeStore`, **scoped by coherence group** (`putJitterDelta(coherenceGroup, table, id, deltaDays)`), so a child inherits the delta anchoring *its* group (not an arbitrary FK parent's) and re-publishes it under itself so grandchildren inherit via one hop (SPEC §4.2).
   - `SENSITIVE` **declared `distinguishing` flag** (SPEC §2.2/§4.1): `distinguishing: false` $\rightarrow$ keep real; `distinguishing: true` $\rightarrow$ require `QuasiIdStrategy` or `RedactionStrategy`; missing `distinguishing`, or `distinguishing: true` with no strategy $\rightarrow$ `ConfigException` (fail-closed, checked at config time). Misdeclaration lint **on by default** (`distinguishingLint`: `WARN` default / `ERROR` fails the run / `OFF` skips): flag a `distinguishing: false` column whose real `COUNT(DISTINCT)` exceeds `maxCategoricalCardinality`.
   - `PAYLOAD` columns kept real.
-  - Resolve `INHERITED_ATTRIBUTE` directly from root ancestor entity in `AttributeCascadeStore` (SPEC §6.1).
+  - Resolve `INHERITED_ATTRIBUTE` from the root ancestor: parents publish their fabricated value; the child walks its FK chain (via published source-id linkage) up to the `derivedFrom` table and reads it. Fail-closed — an unpublished ancestor or a genuine fork (two distinct ancestor rows) throws; a null FK yields null, never the child's own real value (SPEC §6.1).
   - Translate `PRIMARY_KEY` to surrogates; rewrite `FOREIGN_KEY` to mapped parent surrogates.
+
+### Phase 4 follow-up — tech debt
+
+- [ ] **Migrate hand-rolled value substitution into `lib-alterego`** (SPEC §1.4 delegation principle). `TableTransformLoadStage.fabricateShapePreserving(...)` performs class-preserving character substitution *inside Incognito*, which violates "Alterego fabricates fields; Incognito preserves relationships". Add a shape/class-preserving, guaranteed-fictional primitive to Alterego, publish it, and have `ALTEREGO_GENERIC` (and string-`SYNTHESISE`) delegate to it; then delete the Incognito copy. Until then it is a tracked bug, not a sanctioned exception.
+- [ ] **Type-aware redaction** (`RedactionStrategy`): `CLEAR → null` breaks a `NOT NULL` column and `CONSTANT`/`MASK` assume text; make redaction type-appropriate (via the Alterego primitives above) rather than string-only.
+- [ ] **Default-on misdeclaration lint runtime** (`distinguishingLint`): the enum + config field exist, but the `COUNT(DISTINCT)` check itself is not yet wired — it lands in `VerificationStage` (Phase 6), not Phase 4.
 
 ---
 
 ## Phase 5: Key Store & Complex Relational Handling
 
-- [ ] `InMemoryKeyTranslationStore` — bijective `old_pk → new_pk`, single and `CompositeKey` tuples.
-- [ ] `AttributeCascadeStore` (in-memory): `(parentTable, parentId, attr) -> value` and `(parentTable, parentId) -> deltaDays`. Root-ancestor resolution for diamond paths (SPEC §6.1).
+- [x] `InMemoryKeyTranslationStore` — bijective `old_pk → new_pk` (**single-column only**; `CompositeKey` tuples still pending, blocked on the composite PK/FK model — Phase 3 line 49 / Phase 7).
+- [x] `InMemoryAttributeCascadeStore` — `(parentTable, parentId, attr) -> value` (also stores `@fk:` source-id linkage for ancestor walking) and `(coherenceGroup, parentTable, parentId) -> deltaDays`; root-ancestor FK-chain resolution and fork detection live in `TableTransformLoadStage` (SPEC §6.1). Built during Phase 4; diamond paths get end-to-end coverage in Phase 7.
 
 ---
 
@@ -105,6 +111,6 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 - [ ] Verify invariants & traceability:
   - Direct IDs & QIs fabricated; secret salt never persisted/logged and destroyed on completion.
   - Monotonic date sequence ordering preserved; coherent parent-child date deltas maintained.
-  - High-cardinality candidate keys transformed without collision crashes via sequence-decorated fallback.
+  - High-cardinality candidate keys transformed without collision crashes via the length-preserving sequence fallback.
   - Misdeclaration lint behaves per `distinguishingLint`: `OFF` runs no `COUNT(DISTINCT)` scan; `WARN` reports; `ERROR` fails. It is never the privacy gate (the `distinguishing` declaration is).
   - `AnonymisationReport` carries full DPIA accountability evidence.

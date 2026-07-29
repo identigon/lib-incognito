@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 public record AnonymisationPolicy(
     boolean autoInfer,
     int maxCategoricalCardinality,
+    io.github.dconneely.incognito.api.DistinguishingLint distinguishingLint,
     Map<String, TablePolicy> tables
 ) {
     public AnonymisationPolicy {
@@ -36,6 +37,7 @@ public record AnonymisationPolicy(
         // suggests roles — it never silently classifies.
         private boolean autoInfer = false;
         private int maxCategoricalCardinality = 64;
+        private io.github.dconneely.incognito.api.DistinguishingLint distinguishingLint = io.github.dconneely.incognito.api.DistinguishingLint.WARN;
         private final Map<String, TablePolicy> tables = new LinkedHashMap<>();
 
         public Builder autoInfer(boolean autoInfer) {
@@ -46,6 +48,11 @@ public record AnonymisationPolicy(
         /** VARCHAR/SENSITIVE categorical threshold (SPEC §4.1). */
         public Builder maxCategoricalCardinality(int maxCategoricalCardinality) {
             this.maxCategoricalCardinality = maxCategoricalCardinality;
+            return this;
+        }
+
+        public Builder distinguishingLint(io.github.dconneely.incognito.api.DistinguishingLint distinguishingLint) {
+            this.distinguishingLint = distinguishingLint;
             return this;
         }
 
@@ -61,7 +68,7 @@ public record AnonymisationPolicy(
         }
 
         public AnonymisationPolicy build() {
-            return new AnonymisationPolicy(autoInfer, maxCategoricalCardinality, tables);
+            return new AnonymisationPolicy(autoInfer, maxCategoricalCardinality, distinguishingLint, tables);
         }
     }
 }

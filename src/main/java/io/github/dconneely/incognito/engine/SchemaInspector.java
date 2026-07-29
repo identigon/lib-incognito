@@ -44,7 +44,10 @@ public class SchemaInspector {
                     List<String> generatedColumns = new java.util.ArrayList<>();
                     List<String> identityColumns = new java.util.ArrayList<>();
                     List<String> primaryKeyColumns = new java.util.ArrayList<>();
-                    Map<String, String> foreignKeys = new java.util.HashMap<>();
+                    // LinkedHashMap: deterministic FK iteration order (getImportedKeys order) is
+                    // required for reproducible mode (SPEC §5.2) — coherent-jitter parent selection
+                    // and root-ancestor walking must not depend on hash-bucket ordering.
+                    Map<String, String> foreignKeys = new java.util.LinkedHashMap<>();
                     List<String> uniqueCandidateKeys = new java.util.ArrayList<>();
 
                     try (java.sql.ResultSet pksRs = meta.getPrimaryKeys(catalog, schema, tableName)) {

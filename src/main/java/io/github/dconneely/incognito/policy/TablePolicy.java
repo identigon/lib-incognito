@@ -70,7 +70,7 @@ public record TablePolicy(
 
         /** Declares a {@code distinguishing: true} SENSITIVE column redacted via clear / mask / constant (SPEC §2.2/§4.1). */
         public Builder column(String columnName, ColumnRole role, RedactionStrategy strategy) {
-            return column(ColumnPolicy.builder(columnName).role(role).redactionStrategy(strategy).build());
+            return column(ColumnPolicy.builder(columnName).role(role).distinguishing(true).redactionStrategy(strategy).build());
         }
 
         public TablePolicy build() {

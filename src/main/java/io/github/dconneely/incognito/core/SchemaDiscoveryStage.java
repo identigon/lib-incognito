@@ -103,6 +103,20 @@ public final class SchemaDiscoveryStage implements PipelineStage {
                     "Fail-closed: column '" + column + "' in table '" + table.tableName()
                         + "' has no declared ColumnRole in the policy" + hint
                         + ". Classify it explicitly — auto-infer only suggests, never assigns.");
+            } else {
+                ColumnPolicy colPol = tablePolicy.column(column).get();
+                if (colPol.role() == ColumnRole.SENSITIVE) {
+                    if (colPol.distinguishing() == null) {
+                        throw new IncognitoException.ConfigException(
+                            "Fail-closed: SENSITIVE column '" + column + "' in table '" + table.tableName()
+                                + "' does not declare the 'distinguishing' flag. It must explicitly be distinguishing: true or false (SPEC §4.1).");
+                    }
+                    if (colPol.distinguishing() && colPol.quasiIdStrategy() == null && colPol.redactionStrategy() == null) {
+                        throw new IncognitoException.ConfigException(
+                            "Fail-closed: SENSITIVE column '" + column + "' in table '" + table.tableName()
+                                + "' is distinguishing: true, but declares no RedactionStrategy or QuasiIdStrategy (SPEC §4.1).");
+                    }
+                }
             }
         }
         allSuggestions.put(table.tableName(), tableSuggestions);

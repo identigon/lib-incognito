@@ -24,9 +24,13 @@ public interface AttributeCascadeStore extends AutoCloseable {
      */
     Optional<Object> resolveSharedAncestor(String tableA, Object idA, String tableB, Object idB, String attributeName);
 
-    /** Caches the single shared temporal jitter delta for an entity (SPEC §4.2), so its children inherit it. */
-    void putJitterDelta(String parentTable, Object parentId, long deltaDays);
+    /**
+     * Caches the single shared temporal jitter delta for an entity within a named coherence group
+     * (SPEC §4.2), so its children inherit it. Keying on {@code coherenceGroup} keeps deltas from
+     * different groups from contaminating one another when a table has several FK parents.
+     */
+    void putJitterDelta(String coherenceGroup, String parentTable, Object parentId, long deltaDays);
 
-    /** Reads an entity's shared jitter delta, so a child's dates shift coherently with the parent. */
-    Optional<Long> getJitterDelta(String parentTable, Object parentId);
+    /** Reads an entity's shared jitter delta for a coherence group, so a child's dates shift coherently with the parent. */
+    Optional<Long> getJitterDelta(String coherenceGroup, String parentTable, Object parentId);
 }

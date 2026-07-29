@@ -35,8 +35,11 @@ public final class InMemoryAttributeCascadeStore implements AttributeCascadeStor
         }
     }
 
+    /** Composite key for a group-scoped, per-entity jitter delta (SPEC §4.2). */
+    private record JitterKey(String coherenceGroup, String parentTable, Object parentId) {}
+
     private final ConcurrentHashMap<AttributeKey, Object> attributes = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ConcurrentHashMap<Object, Long>> jitterDeltas = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<JitterKey, Long> jitterDeltas = new ConcurrentHashMap<>();
 
     @Override
     public void put(String parentTable, Object parentId, String attributeName, Object value) {
@@ -59,17 +62,13 @@ public final class InMemoryAttributeCascadeStore implements AttributeCascadeStor
     }
 
     @Override
-    public void putJitterDelta(String parentTable, Object parentId, long deltaDays) {
-        jitterDeltas.computeIfAbsent(parentTable, k -> new ConcurrentHashMap<>()).put(parentId, deltaDays);
+    public void putJitterDelta(String coherenceGroup, String parentTable, Object parentId, long deltaDays) {
+        jitterDeltas.put(new JitterKey(coherenceGroup, parentTable, parentId), deltaDays);
     }
 
     @Override
-    public Optional<Long> getJitterDelta(String parentTable, Object parentId) {
-        ConcurrentHashMap<Object, Long> tableMap = jitterDeltas.get(parentTable);
-        if (tableMap != null) {
-            return Optional.ofNullable(tableMap.get(parentId));
-        }
-        return Optional.empty();
+    public Optional<Long> getJitterDelta(String coherenceGroup, String parentTable, Object parentId) {
+        return Optional.ofNullable(jitterDeltas.get(new JitterKey(coherenceGroup, parentTable, parentId)));
     }
 
     @Override

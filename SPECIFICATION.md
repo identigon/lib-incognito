@@ -62,6 +62,10 @@ Incognito **consumes** Alterego as its field-transformation engine and owns ever
 
 These are all **referential-coherence** concerns — meaningless for Alterego's single-value contract, and folding them in would couple Alterego to JDBC and relational schemas, destroying its reuse as a standalone value transformer. So the boundary is simply: **Alterego fabricates fields; Incognito preserves relationships.** The earlier "records vs datasets" framing was really this distinction all along — it only *looked* statistical while k-anonymity was still in scope.
 
+> **Principle (delegation of value transformation).** Incognito must **not** implement its own field-value redaction, anonymisation, substitution, or format-preserving generation. Every transformation of a *value* — masking, constants, shape/pattern-preserving fabrication, date shifting — is delegated to `lib-alterego`; Incognito only *decides* (from policy and schema) **which** transformation each column gets and **coordinates** it across rows and tables. If Incognito needs a value transformation Alterego does not yet expose, the fix is to add the primitive to Alterego, not to hand-roll it here.
+>
+> This is a design rule, not a claim about the current code: some interim value logic still lives in Incognito in violation of it (e.g. the shape-preserving character substitution behind `ALTEREGO_GENERIC`). Such code is a **bug to be migrated**, tracked in the PLAN, not a sanctioned exception.
+
 ---
 
 ## 2. Privacy Model & GDPR Alignment
@@ -160,7 +164,7 @@ The heart of Incognito is a **per-column transformation dial**, all of it backed
 | `ColumnRole` (Level-1/2 classification) | Transformation |
 | :--- | :--- |
 | `DIRECT_ID` (Direct Identifier) | **Fabricate** via `DirectIdStrategy` (name / e-mail / phone / generic). Default `ALTEREGO_GENERIC`. |
-| `UNIQUE_CANDIDATE_KEY` | Fabricate via `AlterEgo.unique()` (guaranteed collision-free within the table; sequence-decorated fallback if dictionary exhausted). |
+| `UNIQUE_CANDIDATE_KEY` | Fabricate via `AlterEgo.unique()` (guaranteed collision-free within the table; length-preserving sequence fallback if dictionary exhausted). |
 | `QUASI_ID` (Quasi-Identifier) | **Fabricate** via `QuasiIdStrategy` — `SYNTHESISE` (fresh fictional value) or a jitter mode for temporal data (§4.2). |
 | `SENSITIVE` (Level-2 Sensitive) | **Declared `distinguishing` flag** (§2.2, see below). `distinguishing: false` → **kept real**. `distinguishing: true` → must carry a `QuasiIdStrategy` (fabricated like a QI) **or** a `RedactionStrategy` (`CLEAR`/`MASK`/`CONSTANT`). Omitting `distinguishing`, or a `distinguishing: true` column with no strategy, is `IncognitoException.ConfigException` (fail-closed). |
 | `PAYLOAD` (Operational) | **Kept real** — the operational data that makes the clone useful for API testing. |
@@ -222,7 +226,7 @@ By default **no rows are dropped** — overall volume is preserved exactly (Goal
 - Salt MUST NOT be logged, written to disk, or included in reports.
 - On completion Incognito zeroes its salt copy and releases the `AlterEgo` instance.
 - The salt modes `ephemeralSalt()` (default), `persistentSalt(byte[])`, and `reproducible(byte[], long)` are mutually exclusive; setting more than one is an `IncognitoException.ConfigException` (enforced by the builder).
-- **High-cardinality `UNIQUE_CANDIDATE_KEY` sequence fallback.** When `AlterEgo.unique()`'s fictional dictionary would be exhausted (more distinct values than the vocabulary can supply), Incognito appends a sequence suffix (e.g. `Value_000001`) instead of throwing `AlterEgoCollisionException`. **Caveat (Goal 1):** the fallback must respect the column's type/format — a bare `Value_NNNNNN` string would violate a numeric column, a fixed-width/format `CHECK`, or a length limit. So the suffix scheme is type-aware (a numeric sequence for numeric columns; a format-preserving pattern where a `CHECK` exists), trading exact format fidelity for guaranteed uniqueness and load-cleanliness. A column whose format cannot be satisfied this way is reported, not silently loaded with an invalid value.
+- **High-cardinality `UNIQUE_CANDIDATE_KEY` sequence fallback.** When `AlterEgo.unique()`'s fictional dictionary would be exhausted (more distinct values than the vocabulary can supply), Incognito derives a unique value from a running sequence instead of throwing `AlterEgoCollisionException`. **Caveat (Goal 1):** the fallback must respect the column's type/format — a naively appended `Value_NNNNNN` string would violate a numeric column, a fixed-width/format `CHECK`, or a length limit. So the scheme is **length-preserving and type-aware**: a bare numeric sequence for numeric columns, and for strings a zero-padded sequence *overlaid on the fabricated value's tail* so the original length is preserved exactly (never widened). A format-preserving pattern honouring an arbitrary `CHECK` is the fuller target (part of the deferred lib-alterego delegation, §1.4); a column whose format still cannot be satisfied is reported, not silently loaded with an invalid value.
 
 ### 5.2 Reproducible mode
 A fixed salt + fixed RNG seed makes a run byte-for-byte reproducible for regression fixtures.
@@ -433,6 +437,16 @@ public interface AttributeCascadeStore extends AutoCloseable {
 Every discovered column must resolve to a `ColumnRole` before the run. Auto-inference (opt-in) only *suggests* roles into the report; it never silently assigns one. A column with no explicit and no accepted inferred role **fails the run** with `IncognitoException.ConfigException` — Incognito never copies an unclassified column assuming it is harmless. This is the mechanism that stops an unspotted identifier leaking through as `PAYLOAD`.
 
 A `PAYLOAD` (or kept `SENSITIVE`) column whose JDBC type is complex/opaque and untransformable in v1.0 (geometry, `JSONB`, array, `INET`, BLOB) is flagged in the report as *"untransformed potentially-identifying type"* — visible to the DPIA, not silently leaked. This is how the deferred complex types (§1.2) stay safe: they cannot be transformed, so if retained they are surfaced.
+
+### 7.3 Implementation invariants (must-not-regress)
+
+These are review invariants — the negative form of guarantees stated positively elsewhere. Violating any is a defect regardless of passing tests:
+
+- **No `hashCode()`-derived fabricated values or jitter deltas.** The source value is known, so a `hashCode` output is un-salted and trivially reversible — a re-identification leak. Every fabricated value and every jitter delta derives from `lib-alterego`'s salt-keyed HMAC stream (§5.1), never `Object.hashCode()`.
+- **No session settings on a throwaway connection.** `session_replication_role='replica'` (and any per-session state) must be set on the **same** connection that performs the inserts; it is per-session and resets on close (§9). Setting it on a different connection silently leaves FK enforcement/triggers active during load.
+- **No `shiftDate(YEAR)` for a strongly-identifying date** (e.g. `dob`) — it preserves the real year; use wide jitter or synthesise (Appendix B).
+- **No silent skipping** of tables or columns (cyclic, unclassified, or untransformable): fail loud or surface in the report — never drop (§7.2).
+- **`pg_stats` is an optimisation, never the privacy gate.** The keep-vs-fabricate decision is the `distinguishing` declaration alone (§4.1).
 
 ---
 

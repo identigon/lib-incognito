@@ -59,6 +59,9 @@ public class YamlPolicyParser {
             if (root.containsKey("maxCategoricalCardinality")) {
                 builder.maxCategoricalCardinality((Integer) root.get("maxCategoricalCardinality"));
             }
+            if (root.containsKey("distinguishingLint")) {
+                builder.distinguishingLint(io.github.dconneely.incognito.api.DistinguishingLint.valueOf(String.valueOf(root.get("distinguishingLint")).toUpperCase()));
+            }
 
             if (root.containsKey("tables")) {
                 Map<String, Map<String, Object>> tables = (Map<String, Map<String, Object>>) root.get("tables");
@@ -89,6 +92,9 @@ public class YamlPolicyParser {
                                 }
                                 if (colNode.containsKey("redactionStrategy")) {
                                     colBuilder.redactionStrategy(RedactionStrategy.valueOf(String.valueOf(colNode.get("redactionStrategy")).toUpperCase()));
+                                }
+                                if (colNode.containsKey("distinguishing")) {
+                                    colBuilder.distinguishing((Boolean) colNode.get("distinguishing"));
                                 }
                                 if (colNode.containsKey("jitterDays")) {
                                     colBuilder.jitterDays((Integer) colNode.get("jitterDays"));

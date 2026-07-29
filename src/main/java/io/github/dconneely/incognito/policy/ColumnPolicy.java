@@ -21,6 +21,7 @@ public record ColumnPolicy(
     DirectIdStrategy directIdStrategy,
     QuasiIdStrategy quasiIdStrategy,
     RedactionStrategy redactionStrategy,
+    Boolean distinguishing,
     int jitterDays,
     String coherenceGroup,
     String referencedTable,
@@ -44,6 +45,7 @@ public record ColumnPolicy(
         private DirectIdStrategy directIdStrategy;
         private QuasiIdStrategy quasiIdStrategy;
         private RedactionStrategy redactionStrategy;
+        private Boolean distinguishing;
         private int jitterDays;
         private String coherenceGroup;
         private String referencedTable;
@@ -80,6 +82,11 @@ public record ColumnPolicy(
             return this;
         }
 
+        public Builder distinguishing(Boolean distinguishing) {
+            this.distinguishing = distinguishing;
+            return this;
+        }
+
         /** ±window in days for {@link QuasiIdStrategy#JITTER_DAYS}. */
         public Builder jitterDays(int jitterDays) {
             this.jitterDays = jitterDays;
@@ -107,7 +114,7 @@ public record ColumnPolicy(
         public ColumnPolicy build() {
             return new ColumnPolicy(
                 columnName, role, surrogateStrategy, directIdStrategy, quasiIdStrategy, redactionStrategy,
-                jitterDays, coherenceGroup,
+                distinguishing, jitterDays, coherenceGroup,
                 referencedTable, referencedColumn,
                 derivedFromTable, derivedFromColumn
             );
