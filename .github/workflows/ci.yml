@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out lib-incognito
+        uses: actions/checkout@v4
+        with:
+          path: lib-incognito
+
+      # lib-incognito depends on io.github.dconneely:alterego:0.2.0-SNAPSHOT, which is not published
+      # to a public repository — it must be built into the local Maven repo first (see PLAN.md
+      # "Build prerequisite"). Adjust the repository/ref if the sibling repo moves.
+      - name: Check out lib-alterego (local SNAPSHOT dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: dconneely/lib-alterego
+          path: lib-alterego
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Publish lib-alterego to Maven local
+        run: ./gradlew --no-daemon publishToMavenLocal
+        working-directory: lib-alterego
+
+      # ubuntu-latest runners ship with Docker, so the Testcontainers PostgreSQL E2Es run for real
+      # here (they skip gracefully only where Docker is absent).
+      - name: Build lib-incognito
+        run: ./gradlew --no-daemon build
+        working-directory: lib-incognito
