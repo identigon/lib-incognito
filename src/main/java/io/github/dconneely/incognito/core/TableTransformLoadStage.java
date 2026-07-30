@@ -74,6 +74,24 @@ public final class TableTransformLoadStage implements PipelineStage {
         java.util.Set<String> publishTargets = computePublishTargets(policy);
         boolean anyInheritance = !publishTargets.isEmpty();
 
+        // Cyclic/self-referential FKs insert placeholders (Pass 1) that violate FK constraints until
+        // Pass 2, so they need FK enforcement suppressed. If the target can't do that (e.g. a
+        // non-superuser PostgreSQL role — owner-mode FK-dropping is not yet implemented), fail fast
+        // with a clear message instead of a confusing FK violation deep in the load (SPEC §9).
+        if (!plan.cyclicTablesToUpdatePass2().isEmpty()) {
+            try (Connection probe = context.target().getConnection()) {
+                if (!getDialectHandler(probe).canDeferCyclicForeignKeys(probe)) {
+                    throw new IncognitoException.ConfigException(
+                        "Target has cyclic/self-referential foreign keys " + plan.cyclicTablesToUpdatePass2()
+                        + " which require suppressing FK enforcement during load, but the target role cannot do so"
+                        + " (PostgreSQL needs SUPERUSER for session_replication_role='replica'; owner-mode FK"
+                        + " dropping is not yet implemented — SPEC §9).");
+                }
+            } catch (SQLException e) {
+                throw new IncognitoException.SchemaException("Failed to probe target FK-suppression capability", e);
+            }
+        }
+
         long totalRows = 0;
         java.util.Map<String, Long> rowsPerTable = new java.util.LinkedHashMap<>();
         List<BulkDatabaseLoadStage.DeferredUpdate> deferredUpdates = new java.util.ArrayList<>();
@@ -229,7 +247,16 @@ public final class TableTransformLoadStage implements PipelineStage {
                                 rowBuf[i] = transformedValue;
                             }
 
-                            if (!rowDeferred.isEmpty() && targetPk != null) {
+                            if (!rowDeferred.isEmpty()) {
+                                // Fail-closed: a cyclic FK can only be resolved in pass 2 via an
+                                // UPDATE keyed on this row's target PK. Without a resolved single-column
+                                // PK the placeholder would persist as a dangling FK — never drop it silently.
+                                if (targetPk == null) {
+                                    throw new IncognitoException.ConstraintException(
+                                        "Cyclic FK on table '" + tableName + "' cannot be deferred: the row has no"
+                                        + " resolved single-column primary key to UPDATE in pass 2"
+                                        + " (composite or absent PK is not yet supported — SPEC §5.2).");
+                                }
                                 for (PendingUpdate pu : rowDeferred) {
                                     deferredUpdates.add(new BulkDatabaseLoadStage.DeferredUpdate(
                                         tableName, pkColumn, targetPk, pu.colName, pu.refTable, pu.sourceFk

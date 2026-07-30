@@ -59,6 +59,14 @@ public final class VerificationStage implements PipelineStage {
     private static final double VOLUME_TOLERANCE_FRACTION = 0.02;
     private static final long VOLUME_TOLERANCE_MIN_ROWS = 1;
 
+    /**
+     * Fraction of a DIRECT_ID column's sampled distinct values that must survive into the target
+     * before survival counts as a hard failure rather than a warning. Shape-preserving fabrication
+     * of low-entropy values can collide with a real value purely by chance; a genuine leak (e.g. an
+     * accidental passthrough) survives ~all values, so a high ratio distinguishes the two.
+     */
+    private static final double SURVIVAL_FAILURE_RATIO = 0.20;
+
     @Override
     @SuppressWarnings("unchecked")
     public StageResult process(PipelineContext context) throws IncognitoException {
@@ -78,6 +86,9 @@ public final class VerificationStage implements PipelineStage {
         AnonymisationPolicy policy = context.policy();
         List<String> failures = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        // Tables that contributed at least one hard failure — the complement (in-policy, no failure)
+        // are reported as fictionality-verified in the DPIA report.
+        java.util.Set<String> failedTables = new java.util.HashSet<>();
 
         try (Connection targetConn = context.target().getConnection()) {
             // 1. Verify referential integrity on the target.
@@ -102,6 +113,7 @@ public final class VerificationStage implements PipelineStage {
                         if (rs.next() && rs.getLong(1) > 0) {
                             failures.add("Dangling FK: " + tableName + "." + fkColumn
                                 + " has " + rs.getLong(1) + " orphaned references to " + parentTable);
+                            failedTables.add(tableName);
                         }
                     }
                 }
@@ -117,7 +129,7 @@ public final class VerificationStage implements PipelineStage {
                     ColumnPolicy colPolicy = entry.getValue();
                     if (colPolicy.role() == ColumnRole.DIRECT_ID
                             && colPolicy.directIdStrategy() == DirectIdStrategy.ALTEREGO_EMAIL) {
-                        verifyEmailFictionality(targetConn, tableName, colPolicy.columnName(), failures);
+                        verifyEmailFictionality(targetConn, tableName, colPolicy.columnName(), failures, failedTables);
                     }
                 }
             }
@@ -244,13 +256,23 @@ public final class VerificationStage implements PipelineStage {
                     if (colPolicy.directIdStrategy() == DirectIdStrategy.ALTEREGO_EMAIL) continue;
 
                     String colName = colPolicy.columnName();
-                    verifySurvival(sourceConn, targetConn3, tableName, colName, failures);
+                    verifySurvival(sourceConn, targetConn3, tableName, colName, failures, warnings, failedTables);
                 }
             }
         } catch (SQLException e) {
             throw new IncognitoException.SchemaException(
                 "Source-value survival check failed", e);
         }
+
+        // Record which in-policy tables passed all verification checks, so the DPIA report can
+        // mark them fictionality-verified (AnonymisationReportBuilder reads this attribute).
+        List<String> verifiedTables = new ArrayList<>();
+        for (String tableName : plan.sequentialTableOrder()) {
+            if (policy.table(tableName).isPresent() && !failedTables.contains(tableName)) {
+                verifiedTables.add(tableName);
+            }
+        }
+        context.attributes().put("incognito.verification.verifiedTables", verifiedTables);
 
         // Build the result message.
         if (!failures.isEmpty()) {
@@ -311,7 +333,8 @@ public final class VerificationStage implements PipelineStage {
     }
 
     private void verifyEmailFictionality(
-            Connection conn, String tableName, String columnName, List<String> failures) throws SQLException {
+            Connection conn, String tableName, String columnName,
+            List<String> failures, java.util.Set<String> failedTables) throws SQLException {
 
         // Check that all non-null email values end with a reserved domain.
         String domainCondition = RESERVED_EMAIL_DOMAINS.stream()
@@ -327,6 +350,7 @@ public final class VerificationStage implements PipelineStage {
             if (rs.next() && rs.getLong(1) > 0) {
                 failures.add("Fictionality violation: " + tableName + "." + columnName
                     + " has " + rs.getLong(1) + " email(s) not using RFC 2606 reserved domains");
+                failedTables.add(tableName);
             }
         }
     }
@@ -350,13 +374,17 @@ public final class VerificationStage implements PipelineStage {
     }
 
     /**
-     * Verifies that no real source value for a DIRECT_ID column survived in the target.
-     * Checks whether the intersection of source and target non-null values is empty.
+     * Verifies that real source values for a DIRECT_ID column did not survive into the target.
+     * Compares the fraction of sampled distinct source values that reappear in the target: a genuine
+     * fabrication failure (e.g. an accidental passthrough) resurfaces ~all values and is a hard
+     * failure, whereas a handful of coincidental shape-preserving collisions on low-entropy values is
+     * only a warning — so this net never fails a healthy run over a low-cardinality identifier.
      */
     private void verifySurvival(
             Connection sourceConn, Connection targetConn, String tableName,
-            String columnName, List<String> failures) throws SQLException {
-        // Collect non-null source values (bounded to a reasonable sample for large tables).
+            String columnName, List<String> failures, List<String> warnings,
+            java.util.Set<String> failedTables) throws SQLException {
+        // Collect non-null distinct source values (bounded to a reasonable sample for large tables).
         List<String> sourceValues = new ArrayList<>();
         try (Statement stmt = sourceConn.createStatement();
              ResultSet rs = stmt.executeQuery(
@@ -368,20 +396,33 @@ public final class VerificationStage implements PipelineStage {
         }
         if (sourceValues.isEmpty()) return;
 
-        // Check if any of those source values exist in the target.
-        // Use a parameterised IN clause via string literals (safe: values are from our own source DB).
+        // How many of those DISTINCT source values reappear in the target?
+        // String literals are safe here: the values come from our own source DB, quotes escaped.
         StringBuilder inClause = new StringBuilder();
         for (int i = 0; i < sourceValues.size(); i++) {
             if (i > 0) inClause.append(",");
             inClause.append("'").append(sourceValues.get(i).replace("'", "''")).append("'");
         }
-        String checkSql = "SELECT COUNT(*) FROM " + tableName
+        String checkSql = "SELECT COUNT(DISTINCT " + columnName + ") FROM " + tableName
             + " WHERE " + columnName + " IN (" + inClause + ")";
         try (Statement stmt = targetConn.createStatement();
              ResultSet rs = stmt.executeQuery(checkSql)) {
-            if (rs.next() && rs.getLong(1) > 0) {
-                failures.add("Source-value survival: " + tableName + "." + columnName
-                    + " has " + rs.getLong(1) + " row(s) in the target still containing a real source value");
+            if (rs.next()) {
+                long survived = rs.getLong(1);
+                if (survived == 0) return;
+                double ratio = (double) survived / sourceValues.size();
+                if (ratio >= SURVIVAL_FAILURE_RATIO) {
+                    failures.add("Source-value survival: " + tableName + "." + columnName
+                        + " has " + survived + " of " + sourceValues.size()
+                        + " sampled distinct source values surviving in the target ("
+                        + String.format("%.0f%%", ratio * 100) + ") — fabrication may not have been applied");
+                    failedTables.add(tableName);
+                } else {
+                    warnings.add("Source-value survival (likely coincidental): " + tableName + "." + columnName
+                        + " has " + survived + " of " + sourceValues.size()
+                        + " sampled distinct source values matching in the target — below the "
+                        + String.format("%.0f%%", SURVIVAL_FAILURE_RATIO * 100) + " failure threshold");
+                }
             }
         }
     }

@@ -33,4 +33,16 @@ public interface DialectHandler {
      * Resynchronizes the sequence for a table's primary key after data has been loaded.
      */
     void resyncSequence(Connection targetConn, String tableName, String pkCol) throws SQLException;
+
+    /**
+     * Whether this dialect can suppress foreign-key enforcement on {@code targetConn} for the
+     * placeholder inserts a cyclic-FK load performs (Pass 1). The owner-mode trigger fallback does
+     * <em>not</em> disable FK enforcement, so cyclic loads need the privileged path (on PostgreSQL,
+     * a superuser for {@code session_replication_role='replica'}). Returns {@code false} by default
+     * so a dialect that can't guarantee it triggers a clear fail-fast rather than a confusing FK
+     * violation mid-load.
+     */
+    default boolean canDeferCyclicForeignKeys(Connection targetConn) throws SQLException {
+        return false;
+    }
 }

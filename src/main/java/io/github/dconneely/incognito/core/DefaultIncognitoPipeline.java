@@ -40,8 +40,13 @@ public final class DefaultIncognitoPipeline implements IncognitoPipeline {
                 .filter(r -> "SchemaDiscoveryStage".equals(r.stageName()))
                 .mapToInt(r -> (int) r.processedCount()).findFirst().orElse(0);
 
+            // Overall success reflects every stage: a VerificationStage that reports failures
+            // (dangling FK, surviving source value, fictionality violation) must fail the run,
+            // not be silently swallowed while the report still records the failed StageResult.
+            boolean overallSuccess = stageResults.stream().allMatch(PipelineStage.StageResult::success);
+
             return new PipelineResult(
-                true,
+                overallSuccess,
                 rowsLoaded,
                 tablesProcessed,
                 Duration.ofNanos(System.nanoTime() - startNanos),

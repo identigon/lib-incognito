@@ -59,19 +59,49 @@ public final class AnonymisationReportBuilder {
 
             for (String colName : tableMeta.columns()) {
                 if (tableMeta.generatedColumns().contains(colName)) continue;
-                
+
                 tablePolicy.column(colName).ifPresent(colPol -> {
-                    String transformation = "KEEPs";
+                    // Does the column keep its real value (a passthrough), or is it transformed?
+                    boolean keptReal = colPol.role() == ColumnRole.PAYLOAD
+                        || (colPol.role() == ColumnRole.SENSITIVE && Boolean.FALSE.equals(colPol.distinguishing()));
+
+                    String transformation;
                     if (colPol.role() == ColumnRole.SENSITIVE) {
-                        transformation = colPol.distinguishing() != null && colPol.distinguishing()
-                            ? (colPol.quasiIdStrategy() != null ? colPol.quasiIdStrategy().toString() : "REDACT")
-                            : (colPol.redactionStrategy() != null ? colPol.redactionStrategy().toString() : "REDACT");
+                        if (Boolean.FALSE.equals(colPol.distinguishing())) {
+                            transformation = "KEEP";
+                        } else if (colPol.redactionStrategy() != null) {
+                            transformation = colPol.redactionStrategy().toString();
+                        } else if (colPol.quasiIdStrategy() != null) {
+                            transformation = colPol.quasiIdStrategy().toString();
+                        } else {
+                            transformation = "REDACT";
+                        }
                     } else if (colPol.role() == ColumnRole.INHERITED_ATTRIBUTE) {
                         transformation = "INHERIT from " + colPol.derivedFromTable() + "." + colPol.derivedFromColumn();
                     } else if (colPol.role() == ColumnRole.FOREIGN_KEY) {
                         transformation = "LINK to " + colPol.referencedTable();
+                    } else {
+                        transformation = switch (colPol.role()) {
+                            case PRIMARY_KEY -> colPol.surrogateStrategy() != null ? colPol.surrogateStrategy().toString() : "SURROGATE";
+                            case DIRECT_ID -> colPol.directIdStrategy() != null ? colPol.directIdStrategy().toString() : "FABRICATE";
+                            case UNIQUE_CANDIDATE_KEY -> (colPol.directIdStrategy() != null ? colPol.directIdStrategy().toString() : "FABRICATE") + " (unique)";
+                            case QUASI_ID -> colPol.quasiIdStrategy() != null ? colPol.quasiIdStrategy().toString() : "SYNTHESISE";
+                            default -> "KEEP"; // PAYLOAD, GENERATED_COLUMN
+                        };
                     }
                     columnActions.add(new AnonymisationReport.ColumnAction(colName, colPol.role(), transformation));
+
+                    // Opaque-type audit (SPEC §7.2): a KEPT column of a complex/untransformable JDBC
+                    // type is surfaced in the DPIA report so a retained potentially-identifying value
+                    // (JSONB, array, geometry, INET, BLOB, …) is visible, never silently passed through.
+                    if (keptReal) {
+                        Integer sqlType = tableMeta.columnTypes() == null ? null : tableMeta.columnTypes().get(colName);
+                        String opaque = opaqueTypeName(sqlType);
+                        if (opaque != null) {
+                            passthroughFlags.add(new AnonymisationReport.PassthroughFlag(
+                                colName, opaque, "untransformed potentially-identifying type kept as-is (SPEC §7.2)"));
+                        }
+                    }
                 });
             }
 
@@ -90,5 +120,28 @@ public final class AnonymisationReportBuilder {
         }
 
         return new AnonymisationReport(tableReports, stageResults);
+    }
+
+    /**
+     * If {@code sqlType} is a complex/opaque JDBC type that v1.0 does not transform (JSONB, arrays,
+     * geometry, INET, XML, LOBs, …), returns its JDBC type name; otherwise {@code null}. PostgreSQL
+     * maps JSONB/JSON/INET/geometry to {@link java.sql.Types#OTHER}, and SQL arrays to
+     * {@link java.sql.Types#ARRAY}.
+     */
+    private static String opaqueTypeName(Integer sqlType) {
+        if (sqlType == null) return null;
+        return switch (sqlType) {
+            case java.sql.Types.ARRAY, java.sql.Types.OTHER, java.sql.Types.STRUCT, java.sql.Types.REF,
+                 java.sql.Types.JAVA_OBJECT, java.sql.Types.SQLXML, java.sql.Types.DATALINK,
+                 java.sql.Types.BLOB, java.sql.Types.CLOB, java.sql.Types.NCLOB,
+                 java.sql.Types.BINARY, java.sql.Types.VARBINARY, java.sql.Types.LONGVARBINARY -> {
+                try {
+                    yield java.sql.JDBCType.valueOf(sqlType).getName();
+                } catch (IllegalArgumentException e) {
+                    yield "TYPE_" + sqlType;
+                }
+            }
+            default -> null;
+        };
     }
 }

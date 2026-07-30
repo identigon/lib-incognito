@@ -18,7 +18,8 @@ public class SchemaInspector {
         List<String> uniqueCandidateKeys,
         List<String> columns,
         List<String> generatedColumns,
-        List<String> identityColumns   // IS_AUTOINCREMENT=YES — inserted with OVERRIDING SYSTEM VALUE
+        List<String> identityColumns,  // IS_AUTOINCREMENT=YES — inserted with OVERRIDING SYSTEM VALUE
+        Map<String, Integer> columnTypes  // column -> java.sql.Types code (for the opaque-type audit, SPEC §7.2)
     ) {}
 
     /**
@@ -49,6 +50,7 @@ public class SchemaInspector {
                     // and root-ancestor walking must not depend on hash-bucket ordering.
                     Map<String, String> foreignKeys = new java.util.LinkedHashMap<>();
                     List<String> uniqueCandidateKeys = new java.util.ArrayList<>();
+                    Map<String, Integer> columnTypes = new java.util.LinkedHashMap<>();
 
                     try (java.sql.ResultSet pksRs = meta.getPrimaryKeys(catalog, schema, tableName)) {
                         Map<Short, String> pkMap = new java.util.TreeMap<>();
@@ -62,7 +64,8 @@ public class SchemaInspector {
                         while (colsRs.next()) {
                             String colName = colsRs.getString("COLUMN_NAME");
                             columns.add(colName);
-                            
+                            columnTypes.put(colName, colsRs.getInt("DATA_TYPE"));
+
                             String isAutoIncrement = colsRs.getString("IS_AUTOINCREMENT");
                             String isGeneratedColumn = colsRs.getString("IS_GENERATEDCOLUMN");
                             
@@ -97,7 +100,7 @@ public class SchemaInspector {
                         }
                     }
 
-                    tables.add(new TableMetadata(tableName, primaryKeyColumns, foreignKeys, uniqueCandidateKeys, columns, generatedColumns, identityColumns));
+                    tables.add(new TableMetadata(tableName, primaryKeyColumns, foreignKeys, uniqueCandidateKeys, columns, generatedColumns, identityColumns, columnTypes));
                 }
             }
         } catch (java.sql.SQLException e) {

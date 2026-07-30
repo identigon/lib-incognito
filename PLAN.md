@@ -47,7 +47,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes, SQL types; filter to `TABLE` only.
   - Detect **computed** generated columns (`IS_GENERATEDCOLUMN`) vs **identity** columns (`IS_AUTOINCREMENT`, now a separate `identityColumns` list driving `OVERRIDING SYSTEM VALUE`).
   - [ ] **Composite PK/FK NOT done** — FKs are modelled as `Map<fkColumn → parentTable>` (single-column only); composite keys need a richer model before Pagila/Phase 7.
-  - [x] `SENSITIVE` handling **done in Phase 4** — a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), validated fail-closed at config time in `SchemaDiscoveryStage` (no automatic `COUNT(DISTINCT)` gate). The distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`), whose runtime check is wired in `VerificationStage` (Phase 6, still outstanding).
+  - [x] `SENSITIVE` handling **done in Phase 4** — a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), validated fail-closed at config time in `SchemaDiscoveryStage` (no automatic `COUNT(DISTINCT)` gate). The distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`), whose runtime check is now wired in `VerificationStage` (Phase 6, done — `DistinguishingLintTest`).
 - [x] **Policy Inference (`PolicyInferrer.java`)**:
   - Implement regex-based heuristic inference (e.g. `.*email.*` -> `DIRECT_ID`).
   - Add to report as `InferSuggestion` (do not auto-apply).
@@ -57,13 +57,13 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - Throw `ConfigException` on syntax errors or invalid fields.
 - [x] Test: `YamlConfigTest.java` (parse valid/invalid configs, verify `autoInfer` flag).
 - [x] `TableDependencyGraph` — single-threaded topological sort (Kahn's algorithm; parent → child).
-- [ ] **Cyclic-FK handling NOT implemented.** A detected FK cycle (including a self-referential FK) now **throws `SchemaException` (fail-loud)** instead of silently dropping the tables. Still to do: nullable cyclic via `NULL`-deferral, `NOT NULL` cyclic via placeholder surrogate (Pass 1) + batch `UPDATE` (Pass 2). (The class comment's "Tarjan's SCC" is aspirational — it's currently Kahn.)
+- [x] **Cyclic-FK handling implemented (Phase 6).** `TableDependencyGraph` now uses **Tarjan's SCC** + condensation + Kahn on the condensed DAG (parents before children; cycles/self-loops clustered). Cyclic tables insert a **type-appropriate placeholder** for the unresolved FK (Pass 1), and `BulkDatabaseLoadStage.resolveDeferredCyclicFKs` runs a 2-pass **`UPDATE`** once the referenced surrogate is known. Fail-closed: a deferred FK on a row with no resolved single-column PK throws (never left as a dangling placeholder). Covered E2E by `CyclicFkE2ETest` (mutual self-ref cycle).
 
 ---
 
 ## Phase 4: Transformation Model (Fabrication & Temporal Jitter)
 
-- [x] `TableTransformLoadStage` streaming execution (`fetchSize = 5000`) — all roles below implemented and unit-tested. **Note:** the advanced relational paths (root-ancestor `INHERITED_ATTRIBUTE`, coherent group jitter) are covered by unit tests only; end-to-end coverage against a real inheritance/coherence schema arrives with the Phase 7 diamond benchmark.
+- [x] `TableTransformLoadStage` streaming execution (`fetchSize = 5000`) — all roles below implemented. The advanced relational paths (root-ancestor `INHERITED_ATTRIBUTE`, coherent group jitter) now have **end-to-end coverage** via `CoherenceE2ETest` (`firm → contract → schedule`: grandparent inheritance + preserved parent-child intervals), beyond the store/fallback unit tests.
   - `DIRECT_ID` via `lib-alterego` (`DirectIdStrategy`); `UNIQUE_CANDIDATE_KEY` via `AlterEgo.unique()` with a **length-preserving** collision fallback (zero-padded sequence overlaid on the value's tail — never widens a fixed-width/`CHECK` column; numeric columns fall back to a bare sequence).
   - `QUASI_ID` temporal jitter (SPEC §4.2): **standalone** dates → bucket-preserving `JITTER_WITHIN_MONTH`/`_YEAR` (exact per-period volumes); **ordered/related** dates (`created_at ≤ approved_at`, contract `start`/`end`, parent-child windows) → **one shared delta per coherence group** (exact orderings/intervals, "similar" volumes). Bucket jitter does NOT preserve ordering — only the shared delta does.
   - Cache the per-entity shared delta in `AttributeCascadeStore`, **scoped by coherence group** (`putJitterDelta(coherenceGroup, table, id, deltaDays)`), so a child inherits the delta anchoring *its* group (not an arbitrary FK parent's) and re-publishes it under itself so grandchildren inherit via one hop (SPEC §4.2).
@@ -76,7 +76,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 - [ ] **Migrate hand-rolled value substitution into `lib-alterego`** (SPEC §1.4 delegation principle). `TableTransformLoadStage.fabricateShapePreserving(...)` performs class-preserving character substitution *inside Incognito*, which violates "Alterego fabricates fields; Incognito preserves relationships". Add a shape/class-preserving, guaranteed-fictional primitive to Alterego, publish it, and have `ALTEREGO_GENERIC` (and string-`SYNTHESISE`) delegate to it; then delete the Incognito copy. Until then it is a tracked bug, not a sanctioned exception.
 - [ ] **Type-aware redaction** (`RedactionStrategy`): `CLEAR → null` breaks a `NOT NULL` column and `CONSTANT`/`MASK` assume text. These currently fail *loud* (a `SQLException` at insert, surfaced as `SchemaException`) — no silent corruption or privacy leak, so this is a robustness/usability item, not a safety one. The fix is type-appropriate, format-preserving value production, which belongs in lib-alterego (§1.4) — do it as part of the delegation migration above rather than hand-rolling a `switch(sqlType)` in Incognito.
-- [ ] **Default-on misdeclaration lint runtime** (`distinguishingLint`): the enum + config field exist, but the `COUNT(DISTINCT)` check itself is not yet wired — it lands in `VerificationStage` (Phase 6), not Phase 4.
+- [x] **Default-on misdeclaration lint runtime** (`distinguishingLint`) — done in Phase 6: `VerificationStage` runs `COUNT(DISTINCT)` (with a `pg_stats` pre-filter) on every `distinguishing: false` SENSITIVE column; `WARN` reports, `ERROR` throws, `OFF` skips. Never the gate. Covered by `DistinguishingLintTest`.
 
 ---
 
@@ -89,16 +89,13 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 ## Phase 6: Loader Engine, Trigger Isolation, Clean-Up & Verification
 
-- [ ] `PostgresDialectHandler` (+ uncertified `GenericDialectHandler` ANSI fallback):
-  - `reWriteBatchedInserts=true`, `SET session_replication_role='replica'` (superuser) with `ALTER TABLE ... DISABLE TRIGGER USER` owner-fallback, `OVERRIDING SYSTEM VALUE`.
-- [ ] `BulkDatabaseLoadStage`:
-  - Pre-load: suppress FK enforcement + user triggers.
-  - Insert: batched `PreparedStatement.executeBatch()`, per-table transaction boundaries.
-  - Deferred: 2-pass batch `UPDATE` for nullable and `NOT NULL` placeholder cyclic FKs.
-  - Post-load: restore FK enforcement + triggers; resync sequences (`SELECT setval(...)`).
-- [ ] `IncognitoCleanUpHandler`: on failure, re-enable triggers + FK enforcement, resync sequences, truncate partially loaded tables, and zero Incognito's salt copy + release `AlterEgo` instance (SPEC §5.1, §8.1).
-- [ ] `VerificationStage`: assert referential integrity on target, verify fictionality (reserved e-mail domains/phones), check per-period volume tolerances, and run the default-on `distinguishing:false` misdeclaration lint (§4.1; `distinguishingLint` WARN/ERROR/OFF).
-- [ ] `AnonymisationReport` emitter: serialise typed report to JSON/HTML as concrete DPIA artifact.
+- [x] `PostgresDialectHandler` (+ uncertified `GenericDialectHandler` ANSI fallback): `SET session_replication_role='replica'` (superuser) on the **insert** connection, with `ALTER TABLE ... DISABLE TRIGGER USER` owner-fallback, `OVERRIDING SYSTEM VALUE`, and `setval(...)` resync.
+  - `reWriteBatchedInserts=true` is a JDBC-URL param on the user's `DataSource` (not settable by the handler); now **documented** as a recommended target-connection setting in `README.md`.
+  - [ ] Gap: the owner-mode degraded path still does **not** drop/recreate FK constraints (SPEC §9). A non-superuser target with cyclic FKs now **fails fast at config time** with a clear message (via `DialectHandler.canDeferCyclicForeignKeys`) instead of a confusing FK violation mid-load — but the full FK-dropping degraded mode remains outstanding.
+- [x] `BulkDatabaseLoadStage` (implemented as an `AutoCloseable` per-table helper, not a discrete `PipelineStage` — transform+load stay coupled to keep streaming): pre-load trigger/FK suppression, batched `executeBatch()`, per-table transaction boundaries, 2-pass deferred `UPDATE` for placeholder cyclic FKs, post-load trigger restore + sequence resync.
+- [x] `IncognitoCleanUpHandler`: on failure re-enables triggers, truncates partially loaded tables, resyncs sequences. Salt zeroing happens in `DefaultIncognitoPipeline.execute()`'s `finally` (both success and failure paths). *(`release AlterEgo` per §5.1 is not fully realised — AlterEgo retains its own salt clone with no close/zero; pre-existing, tracked with the delegation work.)*
+- [x] `VerificationStage`: referential integrity, e-mail fictionality, per-period volume tolerances (exact for `JITTER_WITHIN_*`, ±2% for `JITTER_DAYS`), the default-on misdeclaration lint (§4.1), and a source-value survival net (ratio-based: hard-fails on ~passthrough, warns on coincidental low-entropy collisions). Pipeline `success` now reflects stage failures.
+- [x] `AnonymisationReport` emitter (`DpiaArtifactEmitter`) — serialises the typed report as **JSON**, **HTML**, and Markdown (all zero-dependency). The **passthrough audit** (opaque/untransformable-type flags — JSONB, array, geometry, INET, LOBs — §7.2) is now populated: `SchemaInspector` captures per-column JDBC types and kept columns of an opaque type are surfaced in the report. Report `transformation` labels corrected (`SENSITIVE distinguishing:false` now reads `KEEP`, not `REDACT`).
 
 ---
 

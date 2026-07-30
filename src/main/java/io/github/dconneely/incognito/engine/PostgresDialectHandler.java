@@ -49,6 +49,16 @@ public final class PostgresDialectHandler implements DialectHandler {
     }
 
     @Override
+    public boolean canDeferCyclicForeignKeys(Connection targetConn) throws SQLException {
+        // session_replication_role='replica' (the only way to suppress FK enforcement without
+        // dropping constraints) requires a superuser role.
+        try (Statement stmt = targetConn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT current_setting('is_superuser')")) {
+            return rs.next() && "on".equalsIgnoreCase(rs.getString(1));
+        }
+    }
+
+    @Override
     public void resyncSequence(Connection targetConn, String tableName, String pkCol) throws SQLException {
         try (Statement stmt = targetConn.createStatement()) {
             // Find the sequence associated with the column and resync it
