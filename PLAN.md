@@ -46,7 +46,13 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 - [x] `SchemaInspector`:
   - Query JDBC `DatabaseMetaData` for tables, columns, PKs, FKs, unique indexes, SQL types; filter to `TABLE` only.
   - Detect **computed** generated columns (`IS_GENERATEDCOLUMN`) vs **identity** columns (`IS_AUTOINCREMENT`, now a separate `identityColumns` list driving `OVERRIDING SYSTEM VALUE`).
-  - [ ] **Composite PK/FK NOT done** — FKs are modelled as `Map<fkColumn → parentTable>` (single-column only); composite keys need a richer model before Pagila/Phase 7.
+  - [x] **Composite PK/FK done** (SPEC §5.2; unblocks Pagila `film_actor`, Northwind `Order Details`, PetClinic `vet_specialties`). No SPI change — `KeyTranslationStore` keys on `Object` and `CompositeKey` has value equality; the work was constructing/using composite keys:
+    - [x] `SchemaInspector` groups `getImportedKeys` rows (by FK name, ordered by `KEY_SEQ`) into structured `ForeignKeyConstraint(parentTable, childColumns, parentColumns)`; the per-column `foreignKeys` map is kept for ordering/linkage.
+    - [x] Composite **PK translation** records `CompositeKey(source PK) → CompositeKey(new PK)` **once per row** — the per-PK-column `keyStore.put` pollution is gone (it worked before only by luck of identity surrogates on `1..N`).
+    - [x] Composite **FK rewrite** builds the parent `CompositeKey` from the sibling FK columns (ordered to the parent's PK), looks it up, and returns this column's component. Single-column FKs keep the simple path.
+    - [x] `VerificationStage` checks each FK as a whole tuple (composite-aware), so a broken composite FK is now *caught*, not missed.
+    - [ ] Remaining sub-deferral: **composite PK + cyclic FK** together (the Pass-2 `UPDATE` keys on one column) — fail-closed with a clear message rather than corrupt; not in the benchmarks.
+    - [x] `CompositeKeyE2ETest` — a composite-PK join table (`authorship`, the `film_actor` shape) **and** a genuine composite FK (`chapter → authorship`); asserts single- and composite-FK integrity after surrogate remapping.
   - [x] `SENSITIVE` handling **done in Phase 4** — a **declared** boolean `distinguishing: true | false` (SPEC §2.2/§4.1), validated fail-closed at config time in `SchemaDiscoveryStage` (no automatic `COUNT(DISTINCT)` gate). The distinct-count survives only as a **default-on** misdeclaration lint on `distinguishing: false` columns (`distinguishingLint: WARN | ERROR | OFF`), whose runtime check is now wired in `VerificationStage` (Phase 6, done — `DistinguishingLintTest`).
 - [x] **Policy Inference (`PolicyInferrer.java`)**:
   - Implement regex-based heuristic inference (e.g. `.*email.*` -> `DIRECT_ID`).
@@ -75,6 +81,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 ### Phase 4 follow-up — tech debt
 
 - [ ] **Migrate hand-rolled value substitution into `lib-alterego`** (SPEC §1.4 delegation principle). `TableTransformLoadStage.fabricateShapePreserving(...)` performs class-preserving character substitution *inside Incognito*, which violates "Alterego fabricates fields; Incognito preserves relationships". Add a shape/class-preserving, guaranteed-fictional primitive to Alterego, publish it, and have `ALTEREGO_GENERIC` (and string-`SYNTHESISE`) delegate to it; then delete the Incognito copy. Until then it is a tracked bug, not a sanctioned exception.
+  - **Privacy caveat (fictionality gap):** until this lands, `ALTEREGO_GENERIC` / string-`SYNTHESISE` output is only shape-preserving — it carries **no fictionality guarantee**, unlike the reserved-space built-ins (`emailAddress` → RFC 2606, `phoneNumber` → Ofcom, authored names). A fabricated generic value *could*, by coincidence, equal a real one. The guaranteed-fictional primitive above closes this; the DIRECT_ID survival check (`VerificationStage`) is only a probabilistic net, not the guarantee.
 - [ ] **Type-aware redaction** (`RedactionStrategy`): `CLEAR → null` breaks a `NOT NULL` column and `CONSTANT`/`MASK` assume text. These currently fail *loud* (a `SQLException` at insert, surfaced as `SchemaException`) — no silent corruption or privacy leak, so this is a robustness/usability item, not a safety one. The fix is type-appropriate, format-preserving value production, which belongs in lib-alterego (§1.4) — do it as part of the delegation migration above rather than hand-rolling a `switch(sqlType)` in Incognito.
 - [x] **Default-on misdeclaration lint runtime** (`distinguishingLint`) — done in Phase 6: `VerificationStage` runs `COUNT(DISTINCT)` (with a `pg_stats` pre-filter) on every `distinguishing: false` SENSITIVE column; `WARN` reports, `ERROR` throws, `OFF` skips. Never the gate. Covered by `DistinguishingLintTest`.
 
@@ -82,7 +89,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 ## Phase 5: Key Store & Complex Relational Handling
 
-- [x] `InMemoryKeyTranslationStore` — bijective `old_pk → new_pk` (**single-column only**; `CompositeKey` tuples still pending, blocked on the composite PK/FK model — Phase 3 line 49 / Phase 7).
+- [x] `InMemoryKeyTranslationStore` — bijective `old_pk → new_pk`, single-column values **and** `CompositeKey` tuples (the SPI keys on `Object`; composite PK/FK support landed in Phase 3 — `CompositeKeyE2ETest`).
 - [x] `InMemoryAttributeCascadeStore` — `(parentTable, parentId, attr) -> value` (also stores `@fk:` source-id linkage for ancestor walking) and `(coherenceGroup, parentTable, parentId) -> deltaDays`; root-ancestor FK-chain resolution and fork detection live in `TableTransformLoadStage` (SPEC §6.1). Built during Phase 4; diamond paths get end-to-end coverage in Phase 7.
 
 ---
@@ -93,13 +100,28 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - `reWriteBatchedInserts=true` is a JDBC-URL param on the user's `DataSource` (not settable by the handler); now **documented** as a recommended target-connection setting in `README.md`.
   - [ ] Gap: the owner-mode degraded path still does **not** drop/recreate FK constraints (SPEC §9). A non-superuser target with cyclic FKs now **fails fast at config time** with a clear message (via `DialectHandler.canDeferCyclicForeignKeys`) instead of a confusing FK violation mid-load — but the full FK-dropping degraded mode remains outstanding.
 - [x] `BulkDatabaseLoadStage` (implemented as an `AutoCloseable` per-table helper, not a discrete `PipelineStage` — transform+load stay coupled to keep streaming): pre-load trigger/FK suppression, batched `executeBatch()`, per-table transaction boundaries, 2-pass deferred `UPDATE` for placeholder cyclic FKs, post-load trigger restore + sequence resync.
-- [x] `IncognitoCleanUpHandler`: on failure re-enables triggers, truncates partially loaded tables, resyncs sequences. Salt zeroing happens in `DefaultIncognitoPipeline.execute()`'s `finally` (both success and failure paths). *(`release AlterEgo` per §5.1 is not fully realised — AlterEgo retains its own salt clone with no close/zero; pre-existing, tracked with the delegation work.)*
+- [x] `IncognitoCleanUpHandler`: on failure re-enables triggers, truncates partially loaded tables, resyncs sequences. Salt zeroing happens in `DefaultIncognitoPipeline.execute()`'s `finally` (both success and failure paths). Releasing the `AlterEgo` salt clone is not fully realised — see the Phase 6 follow-up below.
 - [x] `VerificationStage`: referential integrity, e-mail fictionality, per-period volume tolerances (exact for `JITTER_WITHIN_*`, ±2% for `JITTER_DAYS`), the default-on misdeclaration lint (§4.1), and a source-value survival net (ratio-based: hard-fails on ~passthrough, warns on coincidental low-entropy collisions). Pipeline `success` now reflects stage failures.
 - [x] `AnonymisationReport` emitter (`DpiaArtifactEmitter`) — serialises the typed report as **JSON**, **HTML**, and Markdown (all zero-dependency). The **passthrough audit** (opaque/untransformable-type flags — JSONB, array, geometry, INET, LOBs — §7.2) is now populated: `SchemaInspector` captures per-column JDBC types and kept columns of an opaque type are surfaced in the report. Report `transformation` labels corrected (`SENSITIVE distinguishing:false` now reads `KEEP`, not `REDACT`).
+
+### Phase 6 follow-up — tech debt
+
+- [ ] **Release the `AlterEgo` salt on completion** (SPEC §5.1/§8.1). `DefaultIncognitoPipeline` zeroes *Incognito's* salt copy in `finally`, but the `AlterEgo` instance retains its own defensive clone with no `close()`/zeroing API, and the pipeline holds `context` (→ `AlterEgo`) after `execute()` — so the secret outlives the run in memory. Needs an AlterEgo-side destroy/close (coordinate with the delegation migration) plus dropping the reference here.
+- [ ] **Test-coverage debt — two guards remain unexercised:** the **non-superuser fail-fast** (`canDeferCyclicForeignKeys`; tests run as superuser) and the **fail-closed cyclic-no-PK / composite-PK+cyclic** guards (`TableTransformLoadStage`). Add a non-superuser role and a PK-less/composite-PK cyclic table to cover them. (The §7.2 opaque-type **passthrough audit** is now covered by `PassthroughAuditE2ETest`.)
+- [ ] **Observability / optional logging.** The library logs nothing today — deliberate: **the salt and row values must never be logged** (SPEC §7.3/§5.1). If operational logging is later wanted, use the JDK `System.Logger` facade (zero-dependency, agreed direction). First target: surface the currently **swallowed** failures — every `catch (SQLException ignored)` in `PostgresDialectHandler` and `IncognitoCleanUpHandler` means a failed compensation step (triggers left disabled, partial data) is invisible to the operator. Collect these into the `AnonymisationReport` and/or a `System.Logger` warning. Never log the salt or field values.
+- [ ] Minor: JITTER_DAYS per-period volume tolerance (±2% monthly) can emit spurious *warnings* when the window pushes rows across month boundaries — cosmetic (never fails the run). The `DpiaArtifactEmitter` is an opt-in utility (not auto-invoked by the pipeline) — by design, but worth a doc note.
 
 ---
 
 ## Phase 7: Benchmark Integration Testing & Traceability Verification
+
+**Pre-benchmark de-risk (done):** standalone Testcontainers tests already cover the schema features the
+benchmarks rely on, so a benchmark failure points at the schema, not an unproven mechanism — `SERIAL`
+(sequence-default) PKs vs `IDENTITY`/`OVERRIDING SYSTEM VALUE` (`SerialPkE2ETest`); `VIEW` +
+`MATERIALIZED VIEW` exclusion (`ViewExclusionE2ETest`); exact per-period volume preservation for
+`JITTER_WITHIN_MONTH` (`VolumeToleranceE2ETest`); composite PK/FK (`CompositeKeyE2ETest`); cyclic/self-ref
+FKs (`CyclicFkE2ETest`); root-ancestor inheritance + coherent jitter (`CoherenceE2ETest`); and the
+opaque-type passthrough audit (`PassthroughAuditE2ETest`).
 
 - [ ] Testcontainers PostgreSQL benchmark suites:
   - **Pagila / DVD Rental**: `customer`, `address`, `staff`, `payment`, `film_actor`. Verify `VIEW` exclusion and passthrough audit.
@@ -111,3 +133,11 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - High-cardinality candidate keys transformed without collision crashes via the length-preserving sequence fallback.
   - Misdeclaration lint behaves per `distinguishingLint`: `OFF` runs no `COUNT(DISTINCT)` scan; `WARN` reports; `ERROR` fails. It is never the privacy gate (the `distinguishing` declaration is).
   - `AnonymisationReport` carries full DPIA accountability evidence.
+
+---
+
+## Post-v1.0 — possible future directions
+
+Out of the locked v1.0 scope; recorded so the intent isn't lost, not committed to.
+
+- [ ] **`RedisKeyTranslationStore` — a persisted, out-of-process key store.** v1.0 uses an in-memory `KeyTranslationStore` only (Redis is an explicit v1.0 non-goal). A persisted store would let key translation outlive a single JVM run — useful for very large clones that don't fit in heap, for resuming an interrupted load, and for cross-run stability of surrogates. **Constraint:** a persisted key store maps source PKs to surrogates and so is itself sensitive — it must be destroyed on successful completion (SPEC §5.3), exactly as the salt is. (A `redis:7-alpine` dev `docker-compose.yml` was removed once v1.0 shipped without it; reinstate a local service definition alongside this work if picked up.)

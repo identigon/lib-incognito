@@ -167,6 +167,11 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         String selectSql = "SELECT " + String.join(", ", columnsToProcess) + " FROM " + tableName;
 
+        // Primary-key columns (single or composite). A composite PK is translated as one
+        // CompositeKey -> CompositeKey mapping per row, never as per-column entries (SPEC §5.2).
+        List<String> pkCols = tableMeta.primaryKeyColumns();
+        boolean compositePk = pkCols.size() > 1;
+
         AtomicLong surrogateCounter = new AtomicLong(1);
         long rowCount = 0;
 
@@ -192,15 +197,11 @@ public final class TableTransformLoadStage implements PipelineStage {
                             List<PendingUpdate> rowDeferred = new java.util.ArrayList<>();
                             Object targetPk = null;
 
-                            // The row's own source PK (single-column PK only) — the key everything is
-                            // stored under: PK translation, published attributes, and FK linkage.
-                            Object sourcePk = null;
-                            if (!tableMeta.primaryKeyColumns().isEmpty()) {
-                                String pkCol = tableMeta.primaryKeyColumns().getFirst();
-                                if (columnsToProcess.contains(pkCol)) {
-                                    sourcePk = rs.getObject(pkCol);
-                                }
-                            }
+                            // The row's own source PK — a single value, or a CompositeKey for a
+                            // composite PK. Everything keys on this: PK translation, published
+                            // attributes, FK linkage, cyclic deferred UPDATE.
+                            Object sourcePk = buildSourceKey(rs, pkCols, columnsToProcess);
+                            Object[] newPkVals = compositePk ? new Object[pkCols.size()] : null;
 
                             // Publish this row's FK linkage (source parent ids) so a descendant's
                             // INHERITED_ATTRIBUTE can walk the FK chain up to its declared root ancestor.
@@ -233,10 +234,17 @@ public final class TableTransformLoadStage implements PipelineStage {
                                     transformedValue = getPlaceholderForType(sqlType);
                                 }
 
-                                // Record PK translation if this is a PK column.
-                                if (tableMeta.primaryKeyColumns().contains(colName) && originalValue != null) {
-                                    keyStore.put(tableName, originalValue, transformedValue);
-                                    targetPk = transformedValue;
+                                // Collect PK-column translations. A composite PK is recorded once
+                                // after the loop as a single CompositeKey mapping — never per column
+                                // (which would overwrite/pollute the store — SPEC §5.2).
+                                int pkIdx = pkCols.indexOf(colName);
+                                if (pkIdx >= 0 && originalValue != null) {
+                                    if (compositePk) {
+                                        newPkVals[pkIdx] = transformedValue;
+                                    } else {
+                                        keyStore.put(tableName, originalValue, transformedValue);
+                                        targetPk = transformedValue;
+                                    }
                                 }
 
                                 // Publish the fabricated value for descendants to inherit (SPEC §6.1).
@@ -247,15 +255,24 @@ public final class TableTransformLoadStage implements PipelineStage {
                                 rowBuf[i] = transformedValue;
                             }
 
+                            // Composite PK: record the single CompositeKey -> CompositeKey translation.
+                            if (compositePk && sourcePk != null && allNonNull(newPkVals)) {
+                                Object newKey = new io.github.dconneely.incognito.api.CompositeKey(newPkVals);
+                                keyStore.put(tableName, sourcePk, newKey);
+                                targetPk = newKey;
+                            }
+
                             if (!rowDeferred.isEmpty()) {
-                                // Fail-closed: a cyclic FK can only be resolved in pass 2 via an
-                                // UPDATE keyed on this row's target PK. Without a resolved single-column
-                                // PK the placeholder would persist as a dangling FK — never drop it silently.
-                                if (targetPk == null) {
+                                // Fail-closed: a cyclic FK is resolved in pass 2 via an UPDATE keyed on
+                                // this row's target PK. Without a resolved single-column PK the placeholder
+                                // would persist as a dangling FK — never drop it silently. Composite PK +
+                                // cyclic FK is not yet supported (the deferred UPDATE keys on one column).
+                                if (targetPk == null || compositePk) {
                                     throw new IncognitoException.ConstraintException(
-                                        "Cyclic FK on table '" + tableName + "' cannot be deferred: the row has no"
-                                        + " resolved single-column primary key to UPDATE in pass 2"
-                                        + " (composite or absent PK is not yet supported — SPEC §5.2).");
+                                        "Cyclic FK on table '" + tableName + "' cannot be deferred: "
+                                        + (compositePk ? "composite PK + cyclic FK is not yet supported"
+                                                       : "the row has no resolved single-column primary key")
+                                        + " to UPDATE in pass 2 (SPEC §5.2).");
                                 }
                                 for (PendingUpdate pu : rowDeferred) {
                                     deferredUpdates.add(new BulkDatabaseLoadStage.DeferredUpdate(
@@ -298,7 +315,7 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         return switch (role) {
             case PRIMARY_KEY -> buildPkTransformer(colPolicy);
-            case FOREIGN_KEY -> buildFkTransformer(colPolicy, cyclicTables);
+            case FOREIGN_KEY -> buildFkTransformer(columnName, colPolicy, tableMeta, metadataByName, cyclicTables);
             case DIRECT_ID, UNIQUE_CANDIDATE_KEY -> buildDirectIdTransformer(colPolicy, alterEgo, tableMeta.tableName());
             case QUASI_ID -> buildQuasiIdTransformer(colPolicy, alterEgo, tableMeta.tableName());
             case SENSITIVE -> {
@@ -343,19 +360,63 @@ public final class TableTransformLoadStage implements PipelineStage {
         };
     }
 
-    private ColumnTransformer buildFkTransformer(ColumnPolicy colPolicy, List<String> cyclicTables) {
-        String referencedTable = colPolicy.referencedTable();
+    private ColumnTransformer buildFkTransformer(
+            String columnName, ColumnPolicy colPolicy, SchemaInspector.TableMetadata tableMeta,
+            Map<String, SchemaInspector.TableMetadata> metadataByName, List<String> cyclicTables) {
+
+        // Is this column part of a COMPOSITE foreign key?
+        SchemaInspector.ForeignKeyConstraint composite = null;
+        for (SchemaInspector.ForeignKeyConstraint fk : tableMeta.foreignKeyConstraints()) {
+            if (fk.isComposite() && fk.childColumns().contains(columnName)) { composite = fk; break; }
+        }
+
+        if (composite == null) {
+            // Single-column FK: look up the parent's surrogate directly.
+            String referencedTable = colPolicy.referencedTable();
+            return (value, rs, pk, sqlType, counter, ctx, meta) -> {
+                if (value == null) return null;
+                Optional<Object> mapped = ctx.keyStore().get(referencedTable, value);
+                if (mapped.isPresent()) return mapped.get();
+                if (cyclicTables.contains(referencedTable)) throw new CyclicFkException(referencedTable, value);
+                throw new IncognitoException.ConstraintException(
+                    "No key translation found for FK value '" + value + "' referencing table '" + referencedTable + "'");
+            };
+        }
+
+        // Composite FK: order the child columns to match the parent's PK column order, so the lookup
+        // CompositeKey aligns with how the parent recorded its CompositeKey -> CompositeKey mapping.
+        String parentTable = composite.parentTable();
+        SchemaInspector.TableMetadata parentMeta = metadataByName.get(parentTable);
+        List<String> parentPk = (parentMeta != null && !parentMeta.primaryKeyColumns().isEmpty())
+            ? parentMeta.primaryKeyColumns() : composite.parentColumns();
+        List<String> orderedChildCols = new ArrayList<>();
+        for (String pcol : parentPk) {
+            int idx = composite.parentColumns().indexOf(pcol);
+            orderedChildCols.add(idx >= 0 ? composite.childColumns().get(idx) : null);
+        }
+        int thisIdx = orderedChildCols.indexOf(columnName);
+
         return (value, rs, pk, sqlType, counter, ctx, meta) -> {
             if (value == null) return null;
-            Optional<Object> mapped = ctx.keyStore().get(referencedTable, value);
-            if (mapped.isPresent()) {
-                return mapped.get();
+            Object[] lookupVals = new Object[orderedChildCols.size()];
+            for (int i = 0; i < orderedChildCols.size(); i++) {
+                String c = orderedChildCols.get(i);
+                lookupVals[i] = (c == null) ? null : rs.getObject(c);
+                if (lookupVals[i] == null) return value; // incomplete composite FK — leave as-is
             }
-            if (cyclicTables.contains(referencedTable)) {
-                throw new CyclicFkException(referencedTable, value);
+            io.github.dconneely.incognito.api.CompositeKey lookup =
+                new io.github.dconneely.incognito.api.CompositeKey(lookupVals);
+            Optional<Object> mapped = ctx.keyStore().get(parentTable, lookup);
+            if (mapped.isPresent() && mapped.get() instanceof io.github.dconneely.incognito.api.CompositeKey ck) {
+                return ck.components()[thisIdx];
+            }
+            if (cyclicTables.contains(parentTable)) {
+                throw new IncognitoException.ConstraintException(
+                    "Composite FK on '" + meta.tableName() + "' references cyclic table '" + parentTable
+                        + "' — composite + cyclic FKs are not yet supported (SPEC §5.2).");
             }
             throw new IncognitoException.ConstraintException(
-                "No key translation found for FK value '" + value + "' referencing table '" + referencedTable + "'");
+                "No key translation for composite FK " + lookup + " referencing table '" + parentTable + "'");
         };
     }
 
@@ -595,6 +656,29 @@ public final class TableTransformLoadStage implements PipelineStage {
         for (int i = 0; i < width; i++) mod *= 10L;
         String digits = String.format("%0" + width + "d", Math.floorMod(seq, mod));
         return base.substring(0, n - width) + digits;
+    }
+
+    /**
+     * A row's source primary key: the single column's value, a {@link io.github.dconneely.incognito.api.CompositeKey}
+     * for a multi-column PK, or {@code null} when there is no usable PK in the processed columns.
+     */
+    private static Object buildSourceKey(ResultSet rs, List<String> pkCols, List<String> columnsToProcess) throws SQLException {
+        if (pkCols.isEmpty()) return null;
+        if (pkCols.size() == 1) {
+            String c = pkCols.getFirst();
+            return columnsToProcess.contains(c) ? rs.getObject(c) : null;
+        }
+        Object[] vals = new Object[pkCols.size()];
+        for (int i = 0; i < pkCols.size(); i++) {
+            if (!columnsToProcess.contains(pkCols.get(i))) return null;
+            vals[i] = rs.getObject(pkCols.get(i));
+        }
+        return new io.github.dconneely.incognito.api.CompositeKey(vals);
+    }
+
+    private static boolean allNonNull(Object[] arr) {
+        for (Object o : arr) if (o == null) return false;
+        return true;
     }
 
     private io.github.dconneely.incognito.engine.DialectHandler getDialectHandler(Connection conn) throws SQLException {

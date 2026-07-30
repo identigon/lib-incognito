@@ -447,6 +447,7 @@ These are review invariants — the negative form of guarantees stated positivel
 - **No `shiftDate(YEAR)` for a strongly-identifying date** (e.g. `dob`) — it preserves the real year; use wide jitter or synthesise (Appendix B).
 - **No silent skipping** of tables or columns (cyclic, unclassified, or untransformable): fail loud or surface in the report — never drop (§7.2).
 - **`pg_stats` is an optimisation, never the privacy gate.** The keep-vs-fabricate decision is the `distinguishing` declaration alone (§4.1).
+- **The salt and row values are never logged.** The library performs no logging today (no framework, no calls) — a deliberate stance: the secret salt must never be persisted or logged (§5.1), and the source/target rows are PII-shaped, so a logger is a leakage channel. If operational logging is ever added it must use the JDK `System.Logger` facade (zero-dependency, pluggable to the host app) and emit only **coarse operational events** (stage boundaries, cleanup steps, otherwise-swallowed failures) — never the salt and never any source or transformed field value.
 
 ---
 

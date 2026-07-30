@@ -38,7 +38,7 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   resolution (ADR 0007); primary-key surrogates and foreign-key rewriting.
 - **Key & cascade stores** (Phase 5): `InMemoryKeyTranslationStore` and
   `InMemoryAttributeCascadeStore` (published attributes, FK linkage, and group-scoped jitter
-  deltas). Single-column keys only; composite keys pending.
+  deltas). Single-column **and** composite (`CompositeKey`) keys.
 - **Loader, cyclic FKs, clean-up & verification** (Phase 6): `PostgresDialectHandler` (+ generic
   ANSI fallback) with `session_replication_role` trigger isolation, `OVERRIDING SYSTEM VALUE`, and
   sequence resync; cyclic / self-referential foreign keys via Tarjan SCC plus a placeholder and a
@@ -50,7 +50,7 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
 
 ### Known gaps (tracked in PLAN.md)
 
-- Composite primary/foreign keys (blocks the Pagila benchmark).
+- Composite PK + cyclic FK together (each supported alone; the combination fails closed).
 - Migrating the shape-preserving fabricator and type-aware redaction into `lib-alterego`.
 - Owner-mode (non-superuser) degraded load: FK-constraint drop/recreate (cyclic FKs currently
   require a superuser target and fail fast otherwise).

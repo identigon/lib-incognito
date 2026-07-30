@@ -96,22 +96,28 @@ public final class VerificationStage implements PipelineStage {
                 SchemaInspector.TableMetadata meta = metadataByName.get(tableName);
                 if (meta == null) continue;
 
-                for (Map.Entry<String, String> fk : meta.foreignKeys().entrySet()) {
-                    String fkColumn = fk.getKey();
-                    String parentTable = fk.getValue();
-                    SchemaInspector.TableMetadata parentMeta = metadataByName.get(parentTable);
-                    if (parentMeta == null || parentMeta.primaryKeyColumns().isEmpty()) continue;
+                // Check each FK constraint as a whole tuple — so a composite FK is verified across all
+                // its columns, not one column at a time (SPEC §5.2).
+                for (SchemaInspector.ForeignKeyConstraint fk : meta.foreignKeyConstraints()) {
+                    String parentTable = fk.parentTable();
+                    if (metadataByName.get(parentTable) == null) continue;
 
-                    String parentPk = parentMeta.primaryKeyColumns().getFirst();
+                    StringBuilder join = new StringBuilder();
+                    StringBuilder notNull = new StringBuilder();
+                    for (int i = 0; i < fk.childColumns().size(); i++) {
+                        if (i > 0) { join.append(" AND "); notNull.append(" AND "); }
+                        join.append("p.").append(fk.parentColumns().get(i)).append(" = c.").append(fk.childColumns().get(i));
+                        notNull.append("c.").append(fk.childColumns().get(i)).append(" IS NOT NULL");
+                    }
 
                     String checkSql = "SELECT COUNT(*) FROM " + tableName + " c "
-                        + "WHERE c." + fkColumn + " IS NOT NULL "
-                        + "AND NOT EXISTS (SELECT 1 FROM " + parentTable + " p WHERE p." + parentPk + " = c." + fkColumn + ")";
+                        + "WHERE (" + notNull + ") "
+                        + "AND NOT EXISTS (SELECT 1 FROM " + parentTable + " p WHERE " + join + ")";
 
                     try (Statement stmt = targetConn.createStatement();
                          ResultSet rs = stmt.executeQuery(checkSql)) {
                         if (rs.next() && rs.getLong(1) > 0) {
-                            failures.add("Dangling FK: " + tableName + "." + fkColumn
+                            failures.add("Dangling FK: " + tableName + "." + fk.childColumns()
                                 + " has " + rs.getLong(1) + " orphaned references to " + parentTable);
                             failedTables.add(tableName);
                         }
