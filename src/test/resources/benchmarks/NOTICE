@@ -1,0 +1,32 @@
+Incognito — Third-Party Benchmark Data Notices
+
+The SQL files under src/test/resources/benchmarks/ are third-party sample databases used only as
+integration-test fixtures. They are NOT part of the published Incognito library JAR. Each is
+redistributed under its own permissive licence; full provenance is in SOURCES.md and a verbatim copy
+of each licence is under LICENCES/. The attribution required by each source is reproduced below.
+
+--------------------------------------------------------------------------------
+
+Spring PetClinic  (petclinic/schema.sql, petclinic/data.sql)
+
+Copyright the Spring PetClinic authors. Licensed under the Apache License, Version 2.0; you may not
+use these files except in compliance with the licence (a copy is at LICENCES/Apache-2.0.txt). The
+files are used unmodified except for provenance re-sourcing.
+Source: https://github.com/spring-projects/spring-petclinic
+
+--------------------------------------------------------------------------------
+
+Pagila  (pagila/schema.sql; data fetched separately — see SOURCES.md)
+
+The Pagila database is made available under the PostgreSQL License (LICENCES/PostgreSQL-License.txt).
+Pagila is a PostgreSQL port of the Sakila example database, which was originally developed by Mike
+Hillyer of the MySQL AB documentation team.
+Source: https://github.com/devrimgunduz/pagila
+
+--------------------------------------------------------------------------------
+
+Northwind  (northwind/northwind.sql)
+
+The Northwind database originates from Microsoft and is governed by the Microsoft Public License
+(Ms-PL, LICENCES/Ms-PL.txt). PostgreSQL port by the northwind_psql authors.
+Source: https://github.com/pthom/northwind_psql

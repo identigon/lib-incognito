@@ -116,3 +116,13 @@ so it's a connection-config recommendation on your side.
 ## Licence
 
 The source code is MIT-licensed — see [`LICENCE`](LICENCE).
+
+### Benchmark test data
+
+The Phase-7 benchmark fixtures under `src/test/resources/benchmarks/` are third-party sample
+databases used only in tests (never bundled into the published JAR). Each is redistributed under its
+own permissive licence — Spring PetClinic (Apache-2.0), Pagila (PostgreSQL License), Northwind
+(Ms-PL). Full provenance, download and licence URLs are in
+[`benchmarks/SOURCES.md`](src/test/resources/benchmarks/SOURCES.md), attribution in
+[`benchmarks/NOTICE`](src/test/resources/benchmarks/NOTICE), and verbatim licence texts under
+`benchmarks/LICENCES/`.
