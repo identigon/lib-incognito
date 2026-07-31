@@ -4,7 +4,9 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Encapsulates multi-column primary or foreign key tuples.
+ * Encapsulates multi-column primary or foreign key tuples, with value equality over the components.
+ *
+ * @param components the ordered key-column values; at least one, none of the array itself null
  */
 public record CompositeKey(Object... components) {
     public CompositeKey {

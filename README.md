@@ -8,6 +8,8 @@ identifiers and quasi-identifiers are *fabricated*, not generalised or suppresse
 fabrication engine, **not** a k-anonymity / l-diversity / t-closeness implementation (those are
 explicit non-goals — see [ADR 0001](docs/adr/0001-fabrication-not-k-anonymity.md)).
 
+> **In one sentence:** *"I have a great production database and I want a test environment with similar data volumes and similar relationships between entities, but with no danger of leaking PII — a cloned database where the PII has been anonymised, and obviously anonymised, using clearly fictional data."*
+
 See [`SPECIFICATION.md`](SPECIFICATION.md) for the full behavioural contract, [`PLAN.md`](PLAN.md)
 for the implementation phases, [`docs/adr/`](docs/adr/) for the key design decisions and why they
 were made, and [`CHANGELOG.md`](CHANGELOG.md) for what has changed between versions.

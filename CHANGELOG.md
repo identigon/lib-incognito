@@ -1,12 +1,12 @@
 # Changelog
 
 All notable changes to Incognito are recorded here. Format loosely follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow
-[Semantic Versioning](https://semver.org/) once it reaches a stable release.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Guarantees worth an entry
+## Output-stability guarantees
 
-These are what make a changelog entry meaningful rather than just a feature list:
+These hold for every release within a major version, and are what make an entry in this file
+meaningful rather than just a feature list:
 
 - **Fabrication, not statistics.** Direct identifiers and quasi-identifiers are replaced with
   fictional values; there is no k-anonymity / l-diversity / t-closeness model and no global
