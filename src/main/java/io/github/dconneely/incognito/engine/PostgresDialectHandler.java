@@ -13,13 +13,21 @@ import java.util.stream.Collectors;
  */
 public final class PostgresDialectHandler implements DialectHandler {
 
+    private static final System.Logger LOG = System.getLogger(PostgresDialectHandler.class.getName());
+
+    /** Creates a PostgreSQL dialect handler. */
+    public PostgresDialectHandler() {}
+
     @Override
     public void preLoadTable(Connection targetConn, String tableName) throws SQLException {
         try (Statement stmt = targetConn.createStatement()) {
             // Attempt to use superuser session_replication_role for fast trigger/FK suppression
             stmt.execute("SET session_replication_role = 'replica'");
         } catch (SQLException e) {
-            // Fallback for non-superusers (must be owner of the table)
+            // Non-superuser: fall back to owner-mode trigger disabling (does not suppress FK enforcement).
+            LOG.log(System.Logger.Level.DEBUG,
+                "session_replication_role unavailable (SQLState {0}); falling back to owner-mode DISABLE TRIGGER on {1}",
+                e.getSQLState(), tableName);
             try (Statement stmt = targetConn.createStatement()) {
                 stmt.execute("ALTER TABLE " + tableName + " DISABLE TRIGGER USER");
             }
@@ -43,8 +51,12 @@ public final class PostgresDialectHandler implements DialectHandler {
         // Safe to call even if we didn't disable triggers this way, to ensure they are enabled
         try (Statement stmt = targetConn.createStatement()) {
             stmt.execute("ALTER TABLE " + tableName + " ENABLE TRIGGER USER");
-        } catch (SQLException ignored) {
-            // Ignored, might not be owner or might not be necessary if session_replication_role was used
+        } catch (SQLException e) {
+            // Often benign: on the superuser session_replication_role path triggers were never disabled
+            // via ALTER TABLE, so re-enabling can fail harmlessly. Surface at DEBUG for diagnosis only.
+            LOG.log(System.Logger.Level.DEBUG,
+                "ENABLE TRIGGER USER failed on {0} (SQLState {1}); usually benign after session_replication_role",
+                tableName, e.getSQLState());
         }
     }
 

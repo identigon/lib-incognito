@@ -6,8 +6,14 @@ import io.github.dconneely.incognito.api.IncognitoException;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * In-memory {@link KeyTranslationStore} — the single-JVM, non-persistent v1.0 default.
+ */
 public final class InMemoryKeyTranslationStore implements KeyTranslationStore {
     private final ConcurrentHashMap<String, ConcurrentHashMap<Object, Object>> store = new ConcurrentHashMap<>();
+
+    /** Creates an empty in-memory key-translation store. */
+    public InMemoryKeyTranslationStore() {}
 
     @Override
     public void put(String tableName, Object oldPk, Object newPk) throws IncognitoException.StoreException {

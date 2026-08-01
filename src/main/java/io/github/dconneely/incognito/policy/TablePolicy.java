@@ -21,6 +21,11 @@ public record TablePolicy(
     String tableName,
     Map<String, ColumnPolicy> columns
 ) {
+    /**
+     * Validates the table name and takes an unmodifiable, order-preserving copy of the columns.
+     *
+     * @throws NullPointerException if {@code tableName} is null
+     */
     public TablePolicy {
         Objects.requireNonNull(tableName, "tableName cannot be null");
         columns = Collections.unmodifiableMap(new LinkedHashMap<>(columns));
@@ -52,6 +57,8 @@ public record TablePolicy(
         private final Map<String, ColumnPolicy> columns = new LinkedHashMap<>();
 
         /**
+         * Creates a builder for the given table.
+         *
          * @param tableName the table this policy is for
          */
         public Builder(String tableName) {
@@ -141,7 +148,11 @@ public record TablePolicy(
             return column(ColumnPolicy.builder(columnName).role(role).distinguishing(true).redactionStrategy(strategy).build());
         }
 
-        /** @return the built {@link TablePolicy} */
+        /**
+         * Builds the table policy.
+         *
+         * @return the built {@link TablePolicy}
+         */
         public TablePolicy build() {
             return new TablePolicy(tableName, columns);
         }

@@ -30,11 +30,10 @@ tasks.withType<Javadoc>().configureEach {
     options.encoding = "UTF-8"
     (options as StandardJavadocDocletOptions).apply {
         // A doclint warning fails the build instead of the backlog quietly accumulating (mirrors
-        // lib-alterego). The `missing` category — a doc comment / @param / @return on *every* public
-        // element — is a larger retrofit across the whole API surface (tracked in PLAN Phase 6
-        // follow-up), so it is excluded for now; everything else (syntax, HTML, bad references,
-        // accessibility) is enforced and keeps the published javadoc jar clean.
-        addBooleanOption("Xdoclint:all,-missing", true)
+        // lib-alterego). The full `all` group is enforced — including `missing` (a doc comment /
+        // @param / @return / @throws on every public element) — so the published javadoc jar is
+        // complete and warning-free.
+        addBooleanOption("Xdoclint:all", true)
         addBooleanOption("Xwerror", true)
     }
 }

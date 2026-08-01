@@ -9,6 +9,16 @@ import java.util.List;
  */
 public class TableDependencyGraph {
 
+    /** Creates a table dependency graph. */
+    public TableDependencyGraph() {}
+
+    /**
+     * A topological execution plan: an acyclic table order plus the tables whose cyclic FKs need a
+     * second-pass {@code UPDATE}.
+     *
+     * @param sequentialTableOrder      tables in dependency order for the single-pass load
+     * @param cyclicTablesToUpdatePass2 tables with cyclic/self-referential FKs resolved in pass 2
+     */
     public record TopologicalExecutionPlan(
         List<String> sequentialTableOrder,
         List<String> cyclicTablesToUpdatePass2

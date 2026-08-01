@@ -26,16 +26,24 @@ public final class SchemaDiscoveryStage implements PipelineStage {
     /** Key used to store the topological execution plan in the pipeline context attributes. */
     public static final String ATTR_EXECUTION_PLAN = "incognito.schema.executionPlan";
 
+    /** Key used to store the auto-inference role suggestions in the pipeline context attributes. */
     public static final String ATTR_INFER_SUGGESTIONS = "incognito.schema.inferSuggestions";
 
     private final SchemaInspector schemaInspector;
     private final TableDependencyGraph dependencyGraph;
     private final io.github.dconneely.incognito.policy.PolicyInferrer inferrer = new io.github.dconneely.incognito.policy.PolicyInferrer();
 
+    /** Creates a schema-discovery stage with the default inspector and dependency graph. */
     public SchemaDiscoveryStage() {
         this(new SchemaInspector(), new TableDependencyGraph());
     }
 
+    /**
+     * Creates a schema-discovery stage with explicit collaborators (for testing).
+     *
+     * @param inspector the JDBC schema inspector
+     * @param graph     the table dependency graph
+     */
     public SchemaDiscoveryStage(SchemaInspector inspector, TableDependencyGraph graph) {
         this.schemaInspector = inspector;
         this.dependencyGraph = graph;

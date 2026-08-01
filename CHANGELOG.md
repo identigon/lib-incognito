@@ -53,6 +53,10 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   `AlterEgo` instance's internal salt clone is now zeroed on completion via `AlterEgo.close()`, not
   just Incognito's own copy; and **`TIMESTAMP`/`LocalDateTime` quasi-identifier `SYNTHESISE`** (a
   timestamp DOB is shifted within the salt-keyed ±5y window, preserving type and time-of-day).
+- **Observability** via the JDK `System.Logger` facade (zero-dependency): previously-swallowed
+  best-effort compensation failures now log a `WARNING`, and benign fallbacks (owner-mode trigger
+  handling, pg_stats-unavailable) log at `DEBUG`. Each record carries only the operation, table and
+  SQLState — never the salt, a field value, or the raw exception message (§7.3/§5.1).
 
 ### Known gaps (tracked in PLAN.md)
 

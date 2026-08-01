@@ -20,6 +20,9 @@ import java.util.Map;
  */
 public class YamlPolicyParser {
 
+    /** Creates a YAML policy parser. */
+    public YamlPolicyParser() {}
+
     /**
      * Parses an anonymisation policy from a YAML file path.
      *

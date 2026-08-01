@@ -11,6 +11,9 @@ import java.util.stream.Collectors;
  */
 public final class GenericDialectHandler implements DialectHandler {
 
+    /** Creates a generic ANSI dialect handler. */
+    public GenericDialectHandler() {}
+
     @Override
     public void preLoadTable(Connection targetConn, String tableName) throws SQLException {
         // No-op. Rely on topological ordering.

@@ -25,6 +25,9 @@ public record AnonymisationPolicy(
     io.github.dconneely.incognito.api.DistinguishingLint distinguishingLint,
     Map<String, TablePolicy> tables
 ) {
+    /**
+     * Takes an unmodifiable, order-preserving defensive copy of the table map.
+     */
     public AnonymisationPolicy {
         tables = Collections.unmodifiableMap(new LinkedHashMap<>(tables));
     }
@@ -39,13 +42,20 @@ public record AnonymisationPolicy(
         return Optional.ofNullable(tables.get(tableName));
     }
 
-    /** @return a new builder */
+    /**
+     * Starts building a policy.
+     *
+     * @return a new builder
+     */
     public static Builder builder() {
         return new Builder();
     }
 
     /** Fluent builder for an {@link AnonymisationPolicy}. */
     public static class Builder {
+        /** Creates a builder with fail-closed defaults (auto-inference off, lint {@code WARN}). */
+        public Builder() {}
+
         // Fail-closed by default (SPEC §7.2): auto-inference must be opted into, and it only
         // suggests roles — it never silently classifies.
         private boolean autoInfer = false;
@@ -110,7 +120,11 @@ public record AnonymisationPolicy(
             return table(tableBuilder.build());
         }
 
-        /** @return the built {@link AnonymisationPolicy} */
+        /**
+         * Builds the policy.
+         *
+         * @return the built {@link AnonymisationPolicy}
+         */
         public AnonymisationPolicy build() {
             return new AnonymisationPolicy(autoInfer, maxCategoricalCardinality, distinguishingLint, tables);
         }

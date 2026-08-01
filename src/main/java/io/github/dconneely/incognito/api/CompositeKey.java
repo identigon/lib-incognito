@@ -9,6 +9,12 @@ import java.util.Objects;
  * @param components the ordered key-column values; at least one, none of the array itself null
  */
 public record CompositeKey(Object... components) {
+    /**
+     * Validates that at least one component is present.
+     *
+     * @throws NullPointerException     if the components array is null
+     * @throws IllegalArgumentException if there are no components
+     */
     public CompositeKey {
         Objects.requireNonNull(components, "components cannot be null");
         if (components.length == 0) {

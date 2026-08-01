@@ -12,12 +12,23 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * The default {@link IncognitoPipeline}: runs the configured stages in order, then destroys the salt
+ * — Incognito's own copy and the AlterEgo clone — on completion, on both success and failure.
+ */
 public final class DefaultIncognitoPipeline implements IncognitoPipeline {
 
     private final PipelineContext context;
     private final List<PipelineStage> stages;
     private final byte[] saltToClear;
 
+    /**
+     * Creates a pipeline over the given context and stages.
+     *
+     * @param context     the shared pipeline context
+     * @param stages      the stages to run, in order
+     * @param saltToClear Incognito's own salt copy to zero on completion (may be {@code null})
+     */
     public DefaultIncognitoPipeline(PipelineContext context, List<PipelineStage> stages, byte[] saltToClear) {
         this.context = context;
         this.stages = List.copyOf(stages);

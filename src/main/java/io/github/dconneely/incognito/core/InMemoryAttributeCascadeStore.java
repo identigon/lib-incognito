@@ -6,7 +6,14 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 
+/**
+ * In-memory {@link AttributeCascadeStore} — the v1.0 default: published attributes, FK linkage, and
+ * coherence-group jitter deltas held in memory for the duration of one run.
+ */
 public final class InMemoryAttributeCascadeStore implements AttributeCascadeStore {
+
+    /** Creates an empty in-memory attribute-cascade store. */
+    public InMemoryAttributeCascadeStore() {}
 
     private static final class AttributeKey {
         private final String parentTable;

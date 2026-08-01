@@ -40,6 +40,11 @@ import java.util.stream.Collectors;
  */
 public final class VerificationStage implements PipelineStage {
 
+    /** Creates a verification stage. */
+    public VerificationStage() {}
+
+    private static final System.Logger LOG = System.getLogger(VerificationStage.class.getName());
+
     /** RFC 2606 reserved domains that AlterEgo uses for fictional emails. */
     private static final List<String> RESERVED_EMAIL_DOMAINS = List.of(
         "example.com", "example.net", "example.org",
@@ -325,8 +330,12 @@ public final class VerificationStage implements PipelineStage {
                     // through to the exact count.
                 }
             }
-        } catch (SQLException ignored) {
-            // Not PostgreSQL, or pg_stats not accessible — fall through to exact count.
+        } catch (SQLException e) {
+            // Not PostgreSQL, or pg_stats not accessible — pg_stats is only an optimisation, never the
+            // privacy gate (SPEC §4.1), so fall through to the exact count. Surface at DEBUG only.
+            LOG.log(System.Logger.Level.DEBUG,
+                "pg_stats pre-filter unavailable for {0}.{1} (SQLState {2}); using exact COUNT(DISTINCT)",
+                tableName, columnName, e.getSQLState());
         }
 
         // Exact count.

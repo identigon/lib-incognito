@@ -24,7 +24,18 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
     private int batchCount = 0;
     private long rowCount = 0;
 
-    public BulkDatabaseLoadStage(DialectHandler dialect, Connection targetConn, String tableName, 
+    /**
+     * Opens a batched loader for one table: suppresses triggers/FKs and prepares the insert.
+     *
+     * @param dialect       the dialect handler
+     * @param targetConn    the target connection to insert on
+     * @param tableName     the table being loaded
+     * @param columns       the columns to insert, in order
+     * @param hasIdentityPk whether the table has an identity PK (needs {@code OVERRIDING SYSTEM VALUE})
+     * @param pkColumn      the primary-key column to resync afterwards, or {@code null}
+     * @throws SQLException if load preparation fails
+     */
+    public BulkDatabaseLoadStage(DialectHandler dialect, Connection targetConn, String tableName,
                                  List<String> columns, boolean hasIdentityPk, String pkColumn) throws SQLException {
         this.dialect = dialect;
         this.targetConn = targetConn;
@@ -36,6 +47,12 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
         this.insertStmt = targetConn.prepareStatement(insertSql);
     }
 
+    /**
+     * Buffers a row, flushing the batch when it reaches the batch size.
+     *
+     * @param row the column values in insert order
+     * @throws SQLException if a batch flush fails
+     */
     public void insertRow(Object[] row) throws SQLException {
         for (int i = 0; i < row.length; i++) {
             insertStmt.setObject(i + 1, row[i]);
@@ -50,6 +67,11 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
         }
     }
     
+    /**
+     * Returns the number of rows buffered so far.
+     *
+     * @return the row count
+     */
     public long getRowCount() {
         return rowCount;
     }
@@ -72,8 +94,26 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
         }
     }
 
+    /**
+     * A pending pass-2 {@code UPDATE} that resolves one cyclic/self-referential FK once the referenced
+     * row's surrogate key is known.
+     *
+     * @param tableName       the table to update
+     * @param pkColumn        the PK column identifying the row to update
+     * @param pkValue         the target PK value of the row to update
+     * @param fkColumn        the FK column to set
+     * @param referencedTable the parent table the FK references
+     * @param sourceFkValue   the original (source) FK value to translate
+     */
     public record DeferredUpdate(String tableName, String pkColumn, Object pkValue, String fkColumn, String referencedTable, Object sourceFkValue) {}
 
+    /**
+     * Applies all deferred pass-2 {@code UPDATE}s, resolving cyclic-FK placeholders to real surrogates.
+     *
+     * @param context         the pipeline context (for the target connection and key store)
+     * @param deferredUpdates the pending updates (may be {@code null} or empty)
+     * @throws io.github.dconneely.incognito.api.IncognitoException if an update fails
+     */
     public static void resolveDeferredCyclicFKs(io.github.dconneely.incognito.api.PipelineContext context, List<DeferredUpdate> deferredUpdates) throws io.github.dconneely.incognito.api.IncognitoException {
         if (deferredUpdates == null || deferredUpdates.isEmpty()) return;
         

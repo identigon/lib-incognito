@@ -43,6 +43,11 @@ public record ColumnPolicy(
     String derivedFromTable,
     String derivedFromColumn
 ) {
+    /**
+     * Validates required fields.
+     *
+     * @throws NullPointerException if {@code columnName} or {@code role} is null
+     */
     public ColumnPolicy {
         Objects.requireNonNull(columnName, "columnName cannot be null");
         Objects.requireNonNull(role, "role cannot be null");
@@ -75,6 +80,8 @@ public record ColumnPolicy(
         private String derivedFromColumn;
 
         /**
+         * Creates a builder for the given column.
+         *
          * @param columnName the column this policy is for
          */
         public Builder(String columnName) {
@@ -82,6 +89,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Sets the column's classification role.
+         *
          * @param role the column's role
          * @return this builder
          */
@@ -91,6 +100,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Sets the surrogate-key strategy for a {@code PRIMARY_KEY}.
+         *
          * @param strategy the surrogate strategy for a {@code PRIMARY_KEY}
          * @return this builder
          */
@@ -100,6 +111,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Sets the fabrication strategy for a {@code DIRECT_ID}/{@code UNIQUE_CANDIDATE_KEY}.
+         *
          * @param strategy the fabrication strategy for a {@code DIRECT_ID}/{@code UNIQUE_CANDIDATE_KEY}
          * @return this builder
          */
@@ -109,6 +122,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Sets the jitter/synthesise strategy for a {@code QUASI_ID}.
+         *
          * @param strategy the jitter/synthesise strategy for a {@code QUASI_ID}
          * @return this builder
          */
@@ -118,6 +133,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Sets the redaction strategy for a distinguishing {@code SENSITIVE} column.
+         *
          * @param strategy the redaction strategy for a distinguishing {@code SENSITIVE} column
          * @return this builder
          */
@@ -127,6 +144,8 @@ public record ColumnPolicy(
         }
 
         /**
+         * Declares the {@code SENSITIVE} keep-vs-fabricate flag (§4.1).
+         *
          * @param distinguishing the {@code SENSITIVE} keep-vs-fabricate declaration (§4.1)
          * @return this builder
          */
@@ -183,7 +202,11 @@ public record ColumnPolicy(
             return this;
         }
 
-        /** @return the built {@link ColumnPolicy} */
+        /**
+         * Builds the column policy.
+         *
+         * @return the built {@link ColumnPolicy}
+         */
         public ColumnPolicy build() {
             return new ColumnPolicy(
                 columnName, role, surrogateStrategy, directIdStrategy, quasiIdStrategy, redactionStrategy,

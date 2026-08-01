@@ -25,6 +25,26 @@ public final class IncognitoCleanUpHandler {
 
     private IncognitoCleanUpHandler() {}
 
+    private static final System.Logger LOG = System.getLogger(IncognitoCleanUpHandler.class.getName());
+
+    /**
+     * Logs a coarse WARNING that a best-effort compensation step failed, so a target left inconsistent
+     * (triggers disabled, partial data, unsynced sequences) is not silently invisible to the operator.
+     * Deliberately records only the operation, table and SQLState — never the exception message, which
+     * must never carry a field value (SPEC §7.3).
+     */
+    private static void warnCompensation(String operation, String table, SQLException e) {
+        LOG.log(System.Logger.Level.WARNING,
+            "compensation step [{0}] failed on table {1} (SQLState {2}); target may be left inconsistent",
+            operation, table, e.getSQLState());
+    }
+
+    /**
+     * Compensates a failed run: re-enables triggers, truncates partially loaded tables, and resyncs
+     * sequences. Best-effort.
+     *
+     * @param context the pipeline context of the failed run
+     */
     @SuppressWarnings("unchecked")
     public static void compensate(PipelineContext context) {
         Object planObj = context.attributes().get("incognito.schema.executionPlan");
@@ -53,14 +73,15 @@ public final class IncognitoCleanUpHandler {
                 try (Statement stmt = targetConn.createStatement()) {
                     // Truncate to wipe out partially loaded data
                     stmt.execute("DELETE FROM " + tableName);
-                } catch (SQLException ignored) {
-                    // Ignore truncate errors during compensation
+                } catch (SQLException e) {
+                    warnCompensation("truncate partially loaded data", tableName, e);
                 }
 
                 // 2. Re-enable triggers and FKs (safe to call even if they weren't disabled)
                 try {
                     dialect.postLoadTable(targetConn, tableName);
-                } catch (SQLException ignored) {
+                } catch (SQLException e) {
+                    warnCompensation("re-enable triggers/FKs", tableName, e);
                 }
 
                 // 3. Resync sequences
@@ -68,12 +89,15 @@ public final class IncognitoCleanUpHandler {
                 if (meta != null && !meta.primaryKeyColumns().isEmpty()) {
                     try {
                         dialect.resyncSequence(targetConn, tableName, meta.primaryKeyColumns().getFirst());
-                    } catch (SQLException ignored) {
+                    } catch (SQLException e) {
+                        warnCompensation("resync sequence", tableName, e);
                     }
                 }
             }
-        } catch (SQLException ignored) {
-            // Cannot connect to target database to compensate
+        } catch (SQLException e) {
+            LOG.log(System.Logger.Level.WARNING,
+                "compensation could not connect to the target database (SQLState {0}); no clean-up performed",
+                e.getSQLState());
         }
     }
 

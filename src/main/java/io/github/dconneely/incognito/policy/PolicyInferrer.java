@@ -8,12 +8,21 @@ import java.util.regex.Pattern;
  */
 public class PolicyInferrer {
 
+    /** Creates a policy inferrer with the built-in name heuristics. */
+    public PolicyInferrer() {}
+
     private static final Pattern EMAIL_PATTERN = Pattern.compile("(?i).*email.*");
     private static final Pattern PHONE_PATTERN = Pattern.compile("(?i).*(phone|mobile|fax).*");
     private static final Pattern NAME_PATTERN = Pattern.compile("(?i).*(first_?name|last_?name|surname|full_?name).*");
     private static final Pattern DOB_PATTERN = Pattern.compile("(?i).*(dob|birth_?date|date_of_birth).*");
     private static final Pattern SSN_PATTERN = Pattern.compile("(?i).*(ssn|social_?security|tax_?id|nhs_?num).*");
 
+    /**
+     * A suggested role and the heuristic that produced it.
+     *
+     * @param role      the suggested column role
+     * @param heuristic the name of the heuristic that matched
+     */
     public record InferredRole(ColumnRole role, String heuristic) {}
 
     /**

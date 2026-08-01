@@ -16,10 +16,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Assembles the typed {@link AnonymisationReport} (DPIA evidence) from the pipeline context and the
+ * per-stage results.
+ */
 public final class AnonymisationReportBuilder {
 
     private AnonymisationReportBuilder() {}
 
+    /**
+     * Builds the anonymisation report from the run's context and stage results.
+     *
+     * @param context      the pipeline context (holds the plan, table metadata, and inference suggestions)
+     * @param stageResults the per-stage results
+     * @return the assembled report
+     */
     @SuppressWarnings("unchecked")
     public static AnonymisationReport build(PipelineContext context, List<PipelineStage.StageResult> stageResults) {
         Object planObj = context.attributes().get("incognito.schema.executionPlan");

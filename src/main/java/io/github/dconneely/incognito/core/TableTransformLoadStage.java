@@ -39,6 +39,9 @@ import java.util.stream.Collectors;
  */
 public final class TableTransformLoadStage implements PipelineStage {
 
+    /** Creates a transform-and-load stage. */
+    public TableTransformLoadStage() {}
+
     private static final int FETCH_SIZE = 5000;
     private static final int BATCH_SIZE = 1000;
     /** Cascade-store attribute-name prefix under which a row's source FK ids are published for ancestor walking. */
