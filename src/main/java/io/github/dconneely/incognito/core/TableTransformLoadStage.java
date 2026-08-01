@@ -78,17 +78,33 @@ public final class TableTransformLoadStage implements PipelineStage {
         boolean anyInheritance = !publishTargets.isEmpty();
 
         // Cyclic/self-referential FKs insert placeholders (Pass 1) that violate FK constraints until
-        // Pass 2, so they need FK enforcement suppressed. If the target can't do that (e.g. a
-        // non-superuser PostgreSQL role — owner-mode FK-dropping is not yet implemented), fail fast
-        // with a clear message instead of a confusing FK violation deep in the load (SPEC §9).
+        // Pass 2, so FK enforcement must be suppressed during the load. A SUPERUSER target does this
+        // with session_replication_role='replica'; a non-superuser table OWNER cannot, so instead we
+        // drop the cyclic FK constraints for the load and recreate them after Pass 2 (owner-mode
+        // degraded path, SPEC §9). A role that can do neither fails fast with a clear message.
+        List<io.github.dconneely.incognito.engine.DialectHandler.DroppedForeignKey> droppedForeignKeys = List.of();
         if (!plan.cyclicTablesToUpdatePass2().isEmpty()) {
             try (Connection probe = context.target().getConnection()) {
-                if (!getDialectHandler(probe).canDeferCyclicForeignKeys(probe)) {
-                    throw new IncognitoException.ConfigException(
-                        "Target has cyclic/self-referential foreign keys " + plan.cyclicTablesToUpdatePass2()
-                        + " which require suppressing FK enforcement during load, but the target role cannot do so"
-                        + " (PostgreSQL needs SUPERUSER for session_replication_role='replica'; owner-mode FK"
-                        + " dropping is not yet implemented — SPEC §9).");
+                io.github.dconneely.incognito.engine.DialectHandler dialect = getDialectHandler(probe);
+                if (!dialect.canDeferCyclicForeignKeys(probe)) {
+                    java.util.Set<String> cyclicParents = new java.util.HashSet<>(plan.cyclicTablesToUpdatePass2());
+                    try {
+                        droppedForeignKeys = dialect.dropForeignKeysReferencing(probe, cyclicParents);
+                    } catch (SQLException e) {
+                        throw new IncognitoException.ConfigException(
+                            "Target has cyclic/self-referential foreign keys " + plan.cyclicTablesToUpdatePass2()
+                            + " and the target role can neither suppress FK enforcement (needs SUPERUSER for"
+                            + " session_replication_role='replica') nor drop the FK constraints (needs table"
+                            + " ownership) — SPEC §9.", e);
+                    }
+                    if (droppedForeignKeys.isEmpty()) {
+                        throw new IncognitoException.ConfigException(
+                            "Target has cyclic/self-referential foreign keys " + plan.cyclicTablesToUpdatePass2()
+                            + " that require suppressing FK enforcement during load, but the target role is not a"
+                            + " superuser and this dialect cannot drop FK constraints in owner mode — SPEC §9.");
+                    }
+                    // Persist for compensation: a failed load must recreate the dropped constraints.
+                    context.attributes().put("incognito.droppedForeignKeys", droppedForeignKeys);
                 }
             } catch (SQLException e) {
                 throw new IncognitoException.SchemaException("Failed to probe target FK-suppression capability", e);
@@ -115,6 +131,18 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         // Pass 2: resolve deferred cyclic FKs
         BulkDatabaseLoadStage.resolveDeferredCyclicFKs(context, deferredUpdates);
+
+        // Owner-mode degraded path: the clone is now consistent, so recreate the FK constraints that
+        // were dropped for the cyclic load (SPEC §9).
+        if (!droppedForeignKeys.isEmpty()) {
+            try (Connection conn = context.target().getConnection()) {
+                getDialectHandler(conn).recreateForeignKeys(conn, droppedForeignKeys);
+                context.attributes().remove("incognito.droppedForeignKeys");
+            } catch (SQLException e) {
+                throw new IncognitoException.ConstraintException(
+                    "Failed to recreate foreign keys dropped for the owner-mode cyclic load (SPEC §9)", e);
+            }
+        }
 
         context.attributes().put("incognito.metrics.rowsPerTable", rowsPerTable);
 

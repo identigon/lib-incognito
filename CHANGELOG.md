@@ -57,14 +57,18 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   best-effort compensation failures now log a `WARNING`, and benign fallbacks (owner-mode trigger
   handling, pg_stats-unavailable) log at `DEBUG`. Each record carries only the operation, table and
   SQLState — never the salt, a field value, or the raw exception message (§7.3/§5.1).
+- **Owner-mode cyclic-FK load** (SPEC §9): a non-superuser target that *owns* its tables now clones
+  cyclic/self-referential FKs by dropping the cyclic FK constraints for the load and recreating them
+  verbatim (`pg_get_constraintdef`) after the pass-2 `UPDATE` — where a superuser uses
+  `session_replication_role`. The drop/recreate is atomic (transactional DDL) and is recreated on
+  failure too; a role that can do neither still fails fast.
 
 ### Known gaps (tracked in PLAN.md)
 
-- Composite PK + cyclic FK together (each supported alone; the combination fails closed).
+- Composite PK **and** cyclic FK on the same table (each supported alone; the combination fails
+  closed — `FailClosedGuardE2ETest`).
 - Generic shape-preserving fabrication (`ALTEREGO_GENERIC` / string-`SYNTHESISE`) carries no
   fictionality guarantee — inherent for an arbitrary shape; use a typed strategy where the guarantee
   matters (see PLAN.md). It runs on lib-alterego's `bind` extension API (salt-keyed, deterministic)
   and lives in Incognito by decision — not a delegation gap.
-- Owner-mode (non-superuser) degraded load: FK-constraint drop/recreate (cyclic FKs currently
-  require a superuser target and fail fast otherwise).
 - Pagila (Sakila) benchmark not wired — optional, its coverage is already met elsewhere (see PLAN.md).

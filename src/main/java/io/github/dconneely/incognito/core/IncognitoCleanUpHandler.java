@@ -94,6 +94,21 @@ public final class IncognitoCleanUpHandler {
                     }
                 }
             }
+
+            // Recreate any FK constraints dropped for an owner-mode cyclic load (SPEC §9). The tables
+            // were just emptied, so the constraints validate trivially — leaving them dropped would be
+            // a silent schema regression.
+            Object droppedObj = context.attributes().get("incognito.droppedForeignKeys");
+            if (droppedObj instanceof List<?> droppedList && !droppedList.isEmpty()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<DialectHandler.DroppedForeignKey> dropped =
+                        (List<DialectHandler.DroppedForeignKey>) droppedList;
+                    dialect.recreateForeignKeys(targetConn, dropped);
+                } catch (SQLException e) {
+                    warnCompensation("recreate dropped foreign keys", "(schema)", e);
+                }
+            }
         } catch (SQLException e) {
             LOG.log(System.Logger.Level.WARNING,
                 "compensation could not connect to the target database (SQLState {0}); no clean-up performed",

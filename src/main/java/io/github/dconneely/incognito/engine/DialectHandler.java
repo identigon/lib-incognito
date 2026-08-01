@@ -63,4 +63,39 @@ public interface DialectHandler {
     default boolean canDeferCyclicForeignKeys(Connection targetConn) throws SQLException {
         return false;
     }
+
+    /**
+     * Owner-mode degraded path (SPEC §9): when FK enforcement cannot be suppressed via a session
+     * setting (no {@code SUPERUSER} for {@code session_replication_role}), capture and drop the
+     * foreign-key constraints that reference any table in {@code cyclicParentTables}, so the cyclic
+     * placeholder inserts (Pass 1) do not violate them. The caller recreates them once the clone is
+     * consistent (after Pass 2). Returns an empty list and does nothing by default.
+     *
+     * @param targetConn         the target connection (must own the tables to alter them)
+     * @param cyclicParentTables the tables whose inbound FK constraints must be dropped
+     * @return the dropped constraints, for later recreation
+     * @throws SQLException if a constraint cannot be dropped (e.g. the role does not own the table)
+     */
+    default List<DroppedForeignKey> dropForeignKeysReferencing(Connection targetConn, java.util.Set<String> cyclicParentTables) throws SQLException {
+        return List.of();
+    }
+
+    /**
+     * Recreates foreign-key constraints previously dropped by {@link #dropForeignKeysReferencing}.
+     * No-op by default.
+     *
+     * @param targetConn the target connection
+     * @param dropped    the constraints to recreate
+     * @throws SQLException if a constraint cannot be recreated
+     */
+    default void recreateForeignKeys(Connection targetConn, List<DroppedForeignKey> dropped) throws SQLException {}
+
+    /**
+     * A foreign-key constraint captured before being dropped, so it can be recreated verbatim.
+     *
+     * @param tableName      the table the constraint is on
+     * @param constraintName the constraint's name
+     * @param definition     the constraint definition (e.g. {@code FOREIGN KEY (...) REFERENCES ...})
+     */
+    record DroppedForeignKey(String tableName, String constraintName, String definition) {}
 }

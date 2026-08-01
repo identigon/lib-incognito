@@ -4,7 +4,9 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -24,7 +26,12 @@ public final class PostgresDialectHandler implements DialectHandler {
             // Attempt to use superuser session_replication_role for fast trigger/FK suppression
             stmt.execute("SET session_replication_role = 'replica'");
         } catch (SQLException e) {
-            // Non-superuser: fall back to owner-mode trigger disabling (does not suppress FK enforcement).
+            // Non-superuser: the failed SET aborts the current transaction, so roll it back before the
+            // owner-mode fallback (safe — preLoadTable runs before any inserts). FK enforcement is then
+            // handled separately by dropping the cyclic FK constraints (§9); this only disables triggers.
+            if (!targetConn.getAutoCommit()) {
+                targetConn.rollback();
+            }
             LOG.log(System.Logger.Level.DEBUG,
                 "session_replication_role unavailable (SQLState {0}); falling back to owner-mode DISABLE TRIGGER on {1}",
                 e.getSQLState(), tableName);
@@ -85,5 +92,71 @@ public final class PostgresDialectHandler implements DialectHandler {
                 }
             }
         }
+    }
+
+    @Override
+    public List<DroppedForeignKey> dropForeignKeysReferencing(Connection targetConn, Set<String> cyclicParentTables)
+            throws SQLException {
+        if (cyclicParentTables.isEmpty()) return List.of();
+
+        // Capture the FK constraints whose referenced (parent) table is cyclic, with their exact
+        // definitions (pg_get_constraintdef), so they can be recreated verbatim after the load.
+        List<DroppedForeignKey> captured = new ArrayList<>();
+        String query =
+            "SELECT child.relname AS child_table, con.conname AS name, "
+            + "pg_get_constraintdef(con.oid) AS def, parent.relname AS parent_table "
+            + "FROM pg_constraint con "
+            + "JOIN pg_class child ON child.oid = con.conrelid "
+            + "JOIN pg_class parent ON parent.oid = con.confrelid "
+            + "WHERE con.contype = 'f'";
+        try (Statement stmt = targetConn.createStatement(); ResultSet rs = stmt.executeQuery(query)) {
+            while (rs.next()) {
+                if (cyclicParentTables.contains(rs.getString("parent_table"))) {
+                    captured.add(new DroppedForeignKey(
+                        rs.getString("child_table"), rs.getString("name"), rs.getString("def")));
+                }
+            }
+        }
+        // Drop atomically (PostgreSQL has transactional DDL): a partial failure must leave every
+        // constraint in place so nothing is silently lost.
+        runInTransaction(targetConn, stmt -> {
+            for (DroppedForeignKey fk : captured) {
+                stmt.execute("ALTER TABLE " + fk.tableName() + " DROP CONSTRAINT " + quoteIdent(fk.constraintName()));
+            }
+        });
+        return captured;
+    }
+
+    @Override
+    public void recreateForeignKeys(Connection targetConn, List<DroppedForeignKey> dropped) throws SQLException {
+        runInTransaction(targetConn, stmt -> {
+            for (DroppedForeignKey fk : dropped) {
+                stmt.execute("ALTER TABLE " + fk.tableName() + " ADD CONSTRAINT "
+                    + quoteIdent(fk.constraintName()) + " " + fk.definition());
+            }
+        });
+    }
+
+    /** Runs {@code work} as one all-or-nothing DDL transaction, restoring the prior auto-commit mode. */
+    private static void runInTransaction(Connection conn, SqlWork work) throws SQLException {
+        boolean prevAutoCommit = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+        try (Statement stmt = conn.createStatement()) {
+            work.run(stmt);
+            conn.commit();
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(prevAutoCommit);
+        }
+    }
+
+    @FunctionalInterface
+    private interface SqlWork { void run(Statement stmt) throws SQLException; }
+
+    /** Double-quotes an SQL identifier so an arbitrary catalog name is reused verbatim. */
+    private static String quoteIdent(String ident) {
+        return '"' + ident.replace("\"", "\"\"") + '"';
     }
 }
