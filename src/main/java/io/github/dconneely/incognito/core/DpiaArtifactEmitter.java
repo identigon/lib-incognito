@@ -14,6 +14,11 @@ import java.nio.file.Path;
  * (SPEC §7 / PLAN Phase 6): machine-readable {@link #emitJson JSON}, presentation-ready
  * {@link #emitHtml HTML}, and human-diffable {@link #emitMarkdown Markdown}. All are zero-dependency
  * (no JSON/HTML library) so the core stays dependency-lean.
+ *
+ * <p>This is <b>opt-in</b>: the pipeline always builds the {@link AnonymisationReport} (available from
+ * {@code PipelineResult.report()}), but it never writes a file automatically. A caller that wants a
+ * persisted DPIA artifact invokes one of these methods with that report — e.g.
+ * {@code DpiaArtifactEmitter.emitJson(result.report(), path)}.
  */
 public final class DpiaArtifactEmitter {
 

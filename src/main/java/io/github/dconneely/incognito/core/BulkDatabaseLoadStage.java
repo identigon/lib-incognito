@@ -55,7 +55,15 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
      */
     public void insertRow(Object[] row) throws SQLException {
         for (int i = 0; i < row.length; i++) {
-            insertStmt.setObject(i + 1, row[i]);
+            Object value = row[i];
+            // Bind String values as 'unknown' (Types.OTHER) so PostgreSQL casts them to the column's
+            // actual type — the way a string literal does. This lets a kept enum / user-type value
+            // (e.g. an mpaa_rating) round-trip, where a plain varchar bind fails with a type mismatch.
+            if (value instanceof String) {
+                insertStmt.setObject(i + 1, value, java.sql.Types.OTHER);
+            } else {
+                insertStmt.setObject(i + 1, value);
+            }
         }
         insertStmt.addBatch();
         batchCount++;

@@ -65,6 +65,10 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
 
 ### Fixed
 
+- **Enum / user-type passthrough.** A kept (`PAYLOAD`) column of a PostgreSQL `enum` or other
+  user-defined type failed on re-insert — the read `String` was bound as `varchar`, so any table with
+  an enum column (e.g. Pagila's `film.rating`) could not be cloned. `String` values now bind as
+  `Types.OTHER` so PostgreSQL casts them to the column's actual type (enum, `tsvector`, `uuid`, …).
 - `JITTER_DAYS` no longer raises spurious per-period volume-drift *warnings*: because a ±N-day jitter
   crosses month boundaries, the verification volume check now buckets it **yearly** (not monthly),
   where a day-window barely leaks. Cosmetic — it never failed the run.
@@ -77,4 +81,6 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   fictionality guarantee — inherent for an arbitrary shape; use a typed strategy where the guarantee
   matters (see PLAN.md). It runs on lib-alterego's `bind` extension API (salt-keyed, deterministic)
   and lives in Incognito by decision — not a delegation gap.
-- Pagila (Sakila) benchmark not wired — optional, its coverage is already met elsewhere (see PLAN.md).
+- Declarative table **partitioning** is not cloned (partition children are discovered but the
+  partitioned parent isn't specially handled); the Pagila benchmark excludes its partitioned
+  `payment` table. Non-partitioned tables are unaffected.
