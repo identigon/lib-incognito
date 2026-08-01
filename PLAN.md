@@ -135,12 +135,12 @@ opaque-type passthrough audit (`PassthroughAuditE2ETest`).
 - [x] **Benchmark-fixture provenance/licence done** — re-sourced from canonical upstreams with recorded download + licence URLs; verbatim licence texts under `benchmarks/LICENCES/`, attribution in `benchmarks/NOTICE`, provenance in `benchmarks/SOURCES.md`. Licences: PetClinic Apache-2.0, Pagila PostgreSQL License, Northwind Ms-PL, Employees CC BY-SA 3.0 (share-alike honoured: same licence, full attribution chain, changes noted in the file header), Chinook MIT. Pagila's 13 MB data is pinned by URL+SHA-256 rather than vendored.
 - [x] **Temporal jitter/synthesise made type-complete** (was: `JITTER_DAYS` timestamp leak found via Chinook). Every QI branch — `JITTER_WITHIN_MONTH`/`_YEAR`, `JITTER_DAYS` (grouped and not), and `SYNTHESISE` — now shifts `LocalDate`/`java.sql.Date` (`shiftDate`), `java.sql.Timestamp`/`LocalDateTime` (`shiftDateTime`), and `Instant` (`shiftDateTime` at UTC) through a shared `shiftTemporalOrNull` helper. Previously a `TIMESTAMP`/`LocalDateTime` passed through **unshifted** under the non-`SYNTHESISE` branches — a real QI surviving (§7.3). The shared helper's timestamp path is exercised via Chinook (`SYNTHESISE` on a `TIMESTAMP` DOB); the jitter branches reuse it.
 - [x] **`shiftInstant` domain bug — fixed upstream** (lib-alterego `082a4a5`). It built a domain containing `=` that failed AlterEgo's own domain regex and threw for any arguments; it now routes through the same fragment helpers as `shiftDateTime`. Incognito nonetheless shifts `Instant` via `shiftDateTime` at UTC **by design** — one path covers every jitter mode, and `shiftInstant` has no `DateField` overload so it cannot serve the within-month / within-year modes. No change needed here; the former workaround is simply the uniform choice.
-- [ ] Verify invariants & traceability:
-  - Direct IDs & QIs fabricated; secret salt never persisted/logged and destroyed on completion.
-  - Monotonic date sequence ordering preserved; coherent parent-child date deltas maintained.
-  - High-cardinality candidate keys transformed without collision crashes via the length-preserving sequence fallback.
-  - Misdeclaration lint behaves per `distinguishingLint`: `OFF` runs no `COUNT(DISTINCT)` scan; `WARN` reports; `ERROR` fails. It is never the privacy gate (the `distinguishing` declaration is).
-  - `AnonymisationReport` carries full DPIA accountability evidence.
+- [x] **Invariants & traceability verified** — each mapped to a test:
+  - Direct IDs & QIs fabricated → the five benchmarks (name/email/DOB assertions); secret salt destroyed on completion — Incognito's copy zeroed **and** the `AlterEgo` clone closed → `SaltLifecycleTest`; never logged → `ObservabilityTest` (coarse logs only) + by construction (no persistence path).
+  - Coherent parent–child date deltas / monotonic ordering preserved → `CoherenceE2ETest` (source date-intervals equal target intervals, so relative order holds).
+  - High-cardinality candidate keys transformed via the length-preserving sequence fallback, no collision crash → `TableTransformLoadStageTest` (length-preserving, no overflow across many inputs).
+  - Misdeclaration lint per `distinguishingLint` (`OFF` no scan / `WARN` reports / `ERROR` fails; never the gate) → `DistinguishingLintTest`.
+  - `AnonymisationReport` DPIA accountability evidence → `DpiaArtifactEmitterTest` (JSON/HTML/Markdown) + the benchmark passthrough-audit assertions.
 
 ---
 
