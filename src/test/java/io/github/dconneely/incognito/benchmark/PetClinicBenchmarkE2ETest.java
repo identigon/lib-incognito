@@ -1,4 +1,4 @@
-package io.github.dconneely.incognito;
+package io.github.dconneely.incognito.benchmark;
 
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;

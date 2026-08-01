@@ -62,6 +62,13 @@ public final class DefaultIncognitoPipeline implements IncognitoPipeline {
             if (saltToClear != null) {
                 Arrays.fill(saltToClear, (byte) 0);
             }
+            // Destroy AlterEgo's own defensive salt clone too (SPEC §5.1/§8.1): clearing the raw
+            // bytes above does not touch the copy AlterEgo holds internally, which would otherwise
+            // outlive the run until GC. close() zeroes it and disables the instance.
+            AlterEgo alterEgo = context.alterEgo();
+            if (alterEgo != null) {
+                alterEgo.close();
+            }
         }
     }
 }

@@ -47,11 +47,20 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   tolerances, the default-on misdeclaration lint, and a source-value survival net);
   `AnonymisationReportBuilder` (with the §7.2 opaque-type passthrough audit) and a
   `DpiaArtifactEmitter` that writes JSON, HTML, or Markdown.
+- **lib-alterego 0.3.0 adoption:** **type-aware redaction** — `CONSTANT`/`MASK` now delegate to
+  `AlterEgo.redact(Class<T>)`/`constant`/`mask`, so numeric, temporal, boolean and opaque `SENSITIVE`
+  columns get a type-appropriate constant instead of failing at insert; **salt destruction** — the
+  `AlterEgo` instance's internal salt clone is now zeroed on completion via `AlterEgo.close()`, not
+  just Incognito's own copy; and **`TIMESTAMP`/`LocalDateTime` quasi-identifier `SYNTHESISE`** (a
+  timestamp DOB is shifted within the salt-keyed ±5y window, preserving type and time-of-day).
 
 ### Known gaps (tracked in PLAN.md)
 
 - Composite PK + cyclic FK together (each supported alone; the combination fails closed).
-- Migrating the shape-preserving fabricator and type-aware redaction into `lib-alterego`.
+- Generic shape-preserving fabrication (`ALTEREGO_GENERIC` / string-`SYNTHESISE`) carries no
+  fictionality guarantee — inherent for an arbitrary shape; use a typed strategy where the guarantee
+  matters (see PLAN.md). It runs on lib-alterego's `bind` extension API (salt-keyed, deterministic)
+  and lives in Incognito by decision — not a delegation gap.
 - Owner-mode (non-superuser) degraded load: FK-constraint drop/recreate (cyclic FKs currently
   require a superuser target and fail fast otherwise).
-- Benchmark suites (Pagila, Northwind, PetClinic) not yet wired.
+- Pagila (Sakila) benchmark not wired — optional, its coverage is already met elsewhere (see PLAN.md).

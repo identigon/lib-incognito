@@ -458,9 +458,68 @@ public final class TableTransformLoadStage implements PipelineStage {
         io.github.dconneely.incognito.api.RedactionStrategy strategy = colPolicy.redactionStrategy();
         return switch (strategy) {
             case CLEAR -> (val, rs, pk, type, counter, ctx, meta) -> null;
-            case CONSTANT -> (val, rs, pk, type, counter, ctx, meta) -> val == null ? null : alterEgo.constant("REDACTED").apply(val.toString());
-            case MASK -> (val, rs, pk, type, counter, ctx, meta) -> val == null ? null : alterEgo.mask('*', 0).apply(val.toString());
+            case CONSTANT -> (val, rs, pk, type, counter, ctx, meta) -> val == null ? null : redactedConstant(alterEgo, type);
+            case MASK -> (val, rs, pk, type, counter, ctx, meta) -> {
+                if (val == null) return null;
+                // Masking is defined only over text; a numeric/temporal/opaque column instead gets a
+                // type-appropriate redacted constant so the redacted value still fits the column.
+                if (isTextType(type)) return alterEgo.mask('*', 0).apply(val.toString());
+                return redactedConstant(alterEgo, type);
+            };
         };
+    }
+
+    private static boolean isTextType(int sqlType) {
+        return switch (sqlType) {
+            case Types.VARCHAR, Types.CHAR, Types.NVARCHAR, Types.LONGVARCHAR, Types.LONGNVARCHAR, Types.CLOB -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * A type-appropriate redacted constant, produced by lib-alterego ({@code AlterEgo.redact}/
+     * {@code constant}) so a {@code CONSTANT}/{@code MASK} redaction fits a numeric, temporal,
+     * boolean or opaque column rather than only text (SPEC §1.4 — value production is AlterEgo's).
+     */
+    private static Object redactedConstant(AlterEgo alterEgo, int sqlType) {
+        return switch (sqlType) {
+            case Types.VARCHAR, Types.CHAR, Types.NVARCHAR, Types.LONGVARCHAR, Types.LONGNVARCHAR, Types.CLOB
+                -> alterEgo.constant("REDACTED").apply("");
+            case Types.INTEGER, Types.SMALLINT, Types.TINYINT -> alterEgo.redact(Integer.class).apply(0);
+            case Types.BIGINT -> alterEgo.redact(Long.class).apply(0L);
+            case Types.BOOLEAN, Types.BIT -> alterEgo.redact(Boolean.class).apply(Boolean.FALSE);
+            case Types.DATE -> alterEgo.redact(LocalDate.class).apply(LocalDate.EPOCH);
+            case Types.TIMESTAMP -> alterEgo.redact(java.time.LocalDateTime.class).apply(java.time.LocalDateTime.now());
+            case Types.TIMESTAMP_WITH_TIMEZONE -> alterEgo.redact(java.time.Instant.class).apply(java.time.Instant.now());
+            case Types.NUMERIC, Types.DECIMAL, Types.REAL, Types.FLOAT, Types.DOUBLE
+                -> alterEgo.constant(java.math.BigDecimal.ZERO).apply(java.math.BigDecimal.ZERO);
+            default -> null;   // opaque types (bytea/OTHER/ARRAY): valid only if the column is nullable
+        };
+    }
+
+    /**
+     * Applies the matching lib-alterego shift to a temporal value, preserving its Java/JDBC type:
+     * {@code LocalDate}/{@code java.sql.Date} via {@code dateT}; {@code java.sql.Timestamp}/{@code
+     * LocalDateTime} via {@code dateTimeT}; and {@code Instant} via {@code dateTimeT} at UTC. Returns
+     * {@code null} for a non-temporal value so the caller can choose a fallback. Routing date-time
+     * and timestamp columns through {@code shiftDateTime} — not {@code shiftDate} alone — is what
+     * keeps them from passing through unshifted (a real quasi-identifier surviving, SPEC §7.3).
+     * ({@code Instant} reuses {@code shiftDateTime} at UTC rather than {@code shiftInstant} so a single
+     * path covers every jitter mode — {@code shiftInstant} has no {@code DateField} overload, so it
+     * could not serve the within-month / within-year modes.)
+     */
+    private static Object shiftTemporalOrNull(Object value,
+            Transformation<LocalDate> dateT,
+            Transformation<java.time.LocalDateTime> dateTimeT) {
+        if (value instanceof LocalDate ld) return dateT.apply(ld);
+        if (value instanceof java.sql.Date sd) return java.sql.Date.valueOf(dateT.apply(sd.toLocalDate()));
+        if (value instanceof java.sql.Timestamp ts) return java.sql.Timestamp.valueOf(dateTimeT.apply(ts.toLocalDateTime()));
+        if (value instanceof java.time.LocalDateTime ldt) return dateTimeT.apply(ldt);
+        if (value instanceof java.time.Instant inst) {
+            java.time.LocalDateTime shifted = dateTimeT.apply(java.time.LocalDateTime.ofInstant(inst, java.time.ZoneOffset.UTC));
+            return shifted.toInstant(java.time.ZoneOffset.UTC);
+        }
+        return null;
     }
 
     private ColumnTransformer buildQuasiIdTransformer(
@@ -471,20 +530,20 @@ public final class TableTransformLoadStage implements PipelineStage {
         return switch (strategy) {
             case JITTER_WITHIN_MONTH -> {
                 Transformation<LocalDate> dateTransform = alterEgo.shiftDate(AlterEgo.DateField.MONTH);
+                Transformation<java.time.LocalDateTime> dateTimeTransform = alterEgo.shiftDateTime(AlterEgo.DateField.MONTH, 0);
                 yield (value, rs, pk, sqlType, counter, ctx, meta) -> {
                     if (value == null) return null;
-                    if (value instanceof LocalDate ld) return dateTransform.apply(ld);
-                    if (value instanceof java.sql.Date sd) return java.sql.Date.valueOf(dateTransform.apply(sd.toLocalDate()));
-                    return value;
+                    Object shifted = shiftTemporalOrNull(value, dateTransform, dateTimeTransform);
+                    return shifted != null ? shifted : value;
                 };
             }
             case JITTER_WITHIN_YEAR -> {
                 Transformation<LocalDate> dateTransform = alterEgo.shiftDate(AlterEgo.DateField.YEAR);
+                Transformation<java.time.LocalDateTime> dateTimeTransform = alterEgo.shiftDateTime(AlterEgo.DateField.YEAR, 0);
                 yield (value, rs, pk, sqlType, counter, ctx, meta) -> {
                     if (value == null) return null;
-                    if (value instanceof LocalDate ld) return dateTransform.apply(ld);
-                    if (value instanceof java.sql.Date sd) return java.sql.Date.valueOf(dateTransform.apply(sd.toLocalDate()));
-                    return value;
+                    Object shifted = shiftTemporalOrNull(value, dateTransform, dateTimeTransform);
+                    return shifted != null ? shifted : value;
                 };
             }
             case JITTER_DAYS -> {
@@ -493,11 +552,11 @@ public final class TableTransformLoadStage implements PipelineStage {
                 
                 if (group == null) {
                     Transformation<LocalDate> dateTransform = alterEgo.shiftDate(days);
+                    Transformation<java.time.LocalDateTime> dateTimeTransform = alterEgo.shiftDateTime(days, 0);
                     yield (value, rs, pk, sqlType, counter, ctx, meta) -> {
                         if (value == null) return null;
-                        if (value instanceof LocalDate ld) return dateTransform.apply(ld);
-                        if (value instanceof java.sql.Date sd) return java.sql.Date.valueOf(dateTransform.apply(sd.toLocalDate()));
-                        return value;
+                        Object shifted = shiftTemporalOrNull(value, dateTransform, dateTimeTransform);
+                        return shifted != null ? shifted : value;
                     };
                 } else {
                     Transformation<String> hmacer = alterEgo.bind("incognito:jitterdelta:" + group, (input, c) -> {
@@ -539,26 +598,27 @@ public final class TableTransformLoadStage implements PipelineStage {
                         long d = delta;
                         if (value instanceof LocalDate ld) return ld.plusDays(d);
                         if (value instanceof java.sql.Date sd) return java.sql.Date.valueOf(sd.toLocalDate().plusDays(d));
-                        if (value instanceof java.sql.Timestamp ts) {
-                            return java.sql.Timestamp.valueOf(ts.toLocalDateTime().plusDays(d));
-                        }
+                        if (value instanceof java.sql.Timestamp ts) return java.sql.Timestamp.valueOf(ts.toLocalDateTime().plusDays(d));
+                        if (value instanceof java.time.LocalDateTime ldt) return ldt.plusDays(d);
+                        if (value instanceof java.time.Instant inst) return inst.plus(d, java.time.temporal.ChronoUnit.DAYS);
                         return value;
                     };
                 }
             }
             case SYNTHESISE -> {
                 String domain = "incognito:synth:" + tableName + ":" + colPolicy.columnName();
+                // A temporal QI is shifted within a ±5y window (destroys the identifying year, SPEC
+                // Appendix B) through the type-matched lib-alterego primitive; a non-temporal value is
+                // shape-fabricated. shiftDateTime (seconds=0) keeps the time-of-day and fits
+                // TIMESTAMP/TIMESTAMPTZ columns, which shiftDate alone cannot.
                 Transformation<LocalDate> dateTransform = alterEgo.shiftDate(SYNTHESISE_DATE_WINDOW_DAYS);
+                Transformation<java.time.LocalDateTime> dateTimeTransform = alterEgo.shiftDateTime(SYNTHESISE_DATE_WINDOW_DAYS, 0);
                 Transformation<String> strTransform = alterEgo.bind(domain,
                     (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
                 yield (value, rs, pk, sqlType, counter, ctx, meta) -> {
                     if (value == null) return null;
-                    if (value instanceof LocalDate || value instanceof java.sql.Date) {
-                        LocalDate ld = (value instanceof java.sql.Date sd) ? sd.toLocalDate() : (LocalDate) value;
-                        LocalDate result = dateTransform.apply(ld);
-                        return (value instanceof java.sql.Date) ? java.sql.Date.valueOf(result) : result;
-                    }
-                    return strTransform.apply(value.toString());
+                    Object shifted = shiftTemporalOrNull(value, dateTransform, dateTimeTransform);
+                    return shifted != null ? shifted : strTransform.apply(value.toString());
                 };
             }
         };
@@ -694,9 +754,14 @@ public final class TableTransformLoadStage implements PipelineStage {
      * the same class (digit/upper/lower) drawn from AlterEgo's HMAC-SHA256 stream; other characters
      * are kept so length and format survive (helps satisfy CHECK/length constraints — Goal 1).
      *
-     * <p>TODO (SPEC §1.4, PLAN): this is field-value <em>substitution</em> and violates the rule that
-     * Incognito delegates all value transformation to lib-alterego — it belongs in AlterEgo as a
-     * shape-preserving primitive. Tracked for migration; kept here as an interim until AlterEgo exposes it.
+     * <p>This is a caller-supplied strategy bound via {@code alterEgo.bind(domain, ...)}: the random
+     * characters come from AlterEgo's salt-keyed stream ({@code ctx.random()}) and it inherits
+     * determinism / {@code unique()} / record-coherence parity from the bind, so only the character-class
+     * walk is local. Running on AlterEgo's extension API, this is not a SPEC §1.4 violation, and by
+     * decision it stays here (no migration to a core built-in is planned). It carries <em>no</em>
+     * fictionality guarantee — unattainable for an arbitrary shape (a guarantee needs a reserved space,
+     * hence a known format); that guarantee is delivered only by the typed generators
+     * ({@code emailAddress()}, {@code phoneNumber()}, the identifier built-ins).
      */
     private static String fabricateShapePreserving(String input, Randomness r) {
         StringBuilder sb = new StringBuilder(input.length());

@@ -30,3 +30,27 @@ Northwind  (northwind/northwind.sql)
 The Northwind database originates from Microsoft and is governed by the Microsoft Public License
 (Ms-PL, LICENCES/Ms-PL.txt). PostgreSQL port by the northwind_psql authors.
 Source: https://github.com/pthom/northwind_psql
+
+--------------------------------------------------------------------------------
+
+Employees  (employees/employees.sql)
+
+The employees temporal HR sample database is licensed under the Creative Commons
+Attribution-Share Alike 3.0 Unported License (CC BY-SA 3.0, LICENCES/CC-BY-SA-3.0.txt).
+Original data created by Fusheng Wang and Carlo Zaniolo; relational schema by Giuseppe Maxia;
+data conversion by Patrick Crews; Copyright (C) 2007, 2008 MySQL AB.
+The vendored file is an assembly of the Bytebase PostgreSQL port (dataset_small): the schema and the
+load_*.sql data are concatenated in FK-dependency order and the psql \echo/\i meta-commands removed,
+so it loads via a plain JDBC statement stream. No schema object or data row was altered; the original
+CC BY-SA licence header is preserved verbatim in the file.
+Source: https://github.com/bytebase/employee-sample-database  (postgres/dataset_small)
+
+--------------------------------------------------------------------------------
+
+Chinook  (chinook/chinook.sql)
+
+The Chinook database is licensed under the MIT License (LICENCES/MIT-Chinook.txt),
+Copyright (c) 2008-2024 Luis Rocha. The vendored file is the upstream Chinook_PostgreSql.sql with
+its database-creation preamble (DROP DATABASE / CREATE DATABASE / \c chinook) removed so it loads via
+a plain JDBC statement stream; no table or data row was altered.
+Source: https://github.com/lerocha/chinook-database

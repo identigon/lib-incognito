@@ -42,7 +42,7 @@ tasks.withType<Javadoc>().configureEach {
 dependencies {
     // lib-alterego is exposed through Incognito's public API (e.g. PipelineContext.alterEgo()), so it
     // is `api`, not `implementation` — consumers writing custom stages compile against its types.
-    api("io.github.dconneely:alterego:0.2.0-SNAPSHOT")
+    api("io.github.dconneely:alterego:0.3.0-SNAPSHOT")
 
     // Declarative YAML policy parser — an internal detail. TODO: move to a separate incognito-yaml
     // module so the core stays dependency-lean (SPECIFICATION.md §1); currently bundled in core.

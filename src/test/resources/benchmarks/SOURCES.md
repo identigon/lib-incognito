@@ -4,8 +4,10 @@ The SQL files under this directory are third-party sample databases used **only*
 integration-test fixtures. They live in `src/test/resources`, so they are **not** bundled into the
 published library JAR — but they *are* redistributed as part of this git repository, so their
 provenance and licences are recorded here, the required attribution is in [`NOTICE`](NOTICE), and a
-verbatim copy of each licence is under [`LICENCES/`](LICENCES). All three licences are permissive and
-allow redistribution with attribution.
+verbatim copy of each licence is under [`LICENCES/`](LICENCES). Every licence here allows
+redistribution with attribution; the employees fixture additionally carries a **share-alike**
+obligation (CC BY-SA 3.0) — satisfied by keeping it under the same licence, attributing the chain of
+authors, and marking the changes made (see below).
 
 All URLs retrieved **2026-07-31**.
 
@@ -14,6 +16,8 @@ All URLs retrieved **2026-07-31**.
 | PetClinic | [spring-projects/spring-petclinic](https://github.com/spring-projects/spring-petclinic) (`main`) | `petclinic/schema.sql`, `petclinic/data.sql` | `.../src/main/resources/db/postgres/{schema,data}.sql` | Apache-2.0 | `LICENCES/Apache-2.0.txt` |
 | Pagila | [devrimgunduz/pagila](https://github.com/devrimgunduz/pagila) (`master`) | `pagila/schema.sql` (data: fetched, see below) | `.../pagila-schema.sql` | PostgreSQL License | `LICENCES/PostgreSQL-License.txt` |
 | Northwind | [pthom/northwind_psql](https://github.com/pthom/northwind_psql) (`master`) | `northwind/northwind.sql` | `.../northwind.sql` | Ms-PL | `LICENCES/Ms-PL.txt` |
+| Employees | [bytebase/employee-sample-database](https://github.com/bytebase/employee-sample-database) (`main`) | `employees/employees.sql` (assembled) | `.../postgres/dataset_small/{employee,load_*}.sql` | CC BY-SA 3.0 | `LICENCES/CC-BY-SA-3.0.txt` |
+| Chinook | [lerocha/chinook-database](https://github.com/lerocha/chinook-database) (`master`) | `chinook/chinook.sql` (preamble stripped) | `.../ChinookDatabase/DataSources/Chinook_PostgreSql.sql` | MIT | `LICENCES/MIT-Chinook.txt` |
 
 ## PetClinic — Apache License 2.0  ✅ used (`PetClinicBenchmarkE2ETest`)
 
@@ -36,7 +40,48 @@ All URLs retrieved **2026-07-31**.
 - Microsoft's Northwind sample, ported to PostgreSQL; the DB originates from Microsoft under Ms-PL.
 - **Download:** `https://raw.githubusercontent.com/pthom/northwind_psql/master/northwind.sql`
 - **Licence:** Ms-PL — <https://opensource.org/license/ms-pl-html> (copy: `LICENCES/Ms-PL.txt`).
-- Not yet wired to a test.
+- Wired to a test (`NorthwindBenchmarkE2ETest`).
+
+## Employees — Creative Commons Attribution-Share Alike 3.0 (CC BY-SA 3.0)  ✅ used (`EmployeesBenchmarkE2ETest`)
+
+The classic temporal HR sample database (employees, departments, salaries, titles) — the archetypal
+anonymisation/DPIA scenario. Its licence lineage is explicit and unbroken: the data file itself
+carries the original licence header inline.
+
+- **Origin chain (from the file header):** original data by Fusheng Wang & Carlo Zaniolo (Siemens
+  Corporate Research / Aalborg TimeCenter); relational schema by Giuseppe Maxia; XML→relational
+  conversion by Patrick Crews; © 2007, 2008 MySQL AB. Licensed **CC BY-SA 3.0 Unported**.
+- **Vendored bytes:** [bytebase/employee-sample-database](https://github.com/bytebase/employee-sample-database),
+  `postgres/dataset_small`. Bytebase's *repository* `LICENSE` is MIT (© 2022 tianzhou) and covers
+  their packaging/tooling only; the **data file itself is CC BY-SA 3.0** (header preserved verbatim
+  in our copy), so that is the licence recorded and complied with here.
+- **Assembled, not upstream-verbatim.** Our `employees/employees.sql` is a mechanical assembly of
+  bytebase's `dataset_small/employee.sql` (schema) with its six `load_*.sql` data includes inlined in
+  FK-dependency order, and the psql meta-commands (`\echo`, `\i`) removed so it loads through a plain
+  JDBC statement stream. **No schema object or data row was altered.** The changes made (assembly +
+  meta-command removal) are stated in the file's own header, satisfying the CC BY-SA "indicate
+  changes" term; the work stays under CC BY-SA 3.0 (share-alike).
+- **Download URLs:** `https://raw.githubusercontent.com/bytebase/employee-sample-database/main/postgres/dataset_small/employee.sql`
+  plus `load_department.sql`, `load_employee.sql`, `load_dept_emp.sql`, `load_dept_manager.sql`,
+  `load_title.sql`, `load_salary1.sql` in the same directory.
+- **Licence:** CC BY-SA 3.0 Unported — <https://creativecommons.org/licenses/by-sa/3.0/> (copy:
+  `LICENCES/CC-BY-SA-3.0.txt`).
+
+## Chinook — MIT  ✅ used (`ChinookBenchmarkE2ETest`)
+
+A music-store schema (artists, albums, tracks, invoices, customers, employees) — tool-generated,
+fictional data. Adds coverage the other benchmarks lack: `email` columns (verification-stage e-mail
+fictionality net), a self-referential `employee.reports_to` FK, and a `TIMESTAMP` date-of-birth.
+
+- **Origin:** authored by Luis Rocha; the single-file PostgreSQL script is generated from the
+  project's canonical data sources. © 2008–2024 Luis Rocha.
+- **Vendored:** `chinook/chinook.sql` — the upstream `Chinook_PostgreSql.sql` with only its
+  database-creation preamble removed (`DROP DATABASE` / `CREATE DATABASE` / `\c chinook`) so it loads
+  into an existing database via a plain JDBC statement stream. No table or data row was altered; the
+  upstream header and licence reference are preserved. The change is stated in the file's own header.
+- **Download:** `https://raw.githubusercontent.com/lerocha/chinook-database/master/ChinookDatabase/DataSources/Chinook_PostgreSql.sql`
+- **Licence:** MIT — <https://github.com/lerocha/chinook-database/blob/master/LICENSE.md> (copy:
+  `LICENCES/MIT-Chinook.txt`).
 
 ## Notes on the model (improvements over `lib-alterego`'s)
 
