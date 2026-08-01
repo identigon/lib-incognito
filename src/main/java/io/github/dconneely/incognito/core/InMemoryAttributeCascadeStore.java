@@ -1,10 +1,9 @@
 package io.github.dconneely.incognito.core;
 
 import io.github.dconneely.incognito.api.AttributeCascadeStore;
-
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Objects;
 
 /**
  * In-memory {@link AttributeCascadeStore} — the v1.0 default: published attributes, FK linkage, and

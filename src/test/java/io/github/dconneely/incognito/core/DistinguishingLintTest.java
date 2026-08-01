@@ -1,5 +1,7 @@
 package io.github.dconneely.incognito.core;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.DistinguishingLint;
@@ -10,21 +12,17 @@ import io.github.dconneely.incognito.api.QuasiIdStrategy;
 import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import io.github.dconneely.incognito.policy.ColumnPolicy;
-
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests the {@code distinguishingLint} runtime check in {@link VerificationStage} (SPEC §4.1).

@@ -1,5 +1,9 @@
 package io.github.dconneely.incognito;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
@@ -9,25 +13,19 @@ import io.github.dconneely.incognito.core.SchemaDiscoveryStage;
 import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Views and materialized views must be excluded from discovery (SPEC §7.2) — Pagila has both.

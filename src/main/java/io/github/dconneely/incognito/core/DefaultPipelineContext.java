@@ -5,10 +5,9 @@ import io.github.dconneely.incognito.api.AttributeCascadeStore;
 import io.github.dconneely.incognito.api.KeyTranslationStore;
 import io.github.dconneely.incognito.api.PipelineContext;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-
-import javax.sql.DataSource;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.sql.DataSource;
 
 /**
  * The default {@link PipelineContext} — an immutable record of the run's collaborators with a mutable

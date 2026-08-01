@@ -1,5 +1,6 @@
 package io.github.dconneely.incognito.core;
 
+import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.IncognitoException;
 import io.github.dconneely.incognito.api.PipelineContext;
 import io.github.dconneely.incognito.api.PipelineStage;
@@ -8,8 +9,6 @@ import io.github.dconneely.incognito.engine.TableDependencyGraph;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import io.github.dconneely.incognito.policy.ColumnPolicy;
 import io.github.dconneely.incognito.policy.TablePolicy;
-import io.github.dconneely.incognito.api.ColumnRole;
-
 import java.util.List;
 
 /**

@@ -1,5 +1,10 @@
 package io.github.dconneely.incognito;
 
+import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
+import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.IncognitoException;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
@@ -9,24 +14,17 @@ import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import io.github.dconneely.incognito.policy.ColumnPolicy;
-
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
-
-import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
-import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Exercises the fail-closed guards for load configurations Incognito cannot safely handle — cases

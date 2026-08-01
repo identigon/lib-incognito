@@ -1,8 +1,7 @@
 package io.github.dconneely.incognito.core;
 
-import io.github.dconneely.incognito.api.KeyTranslationStore;
 import io.github.dconneely.incognito.api.IncognitoException;
-
+import io.github.dconneely.incognito.api.KeyTranslationStore;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 

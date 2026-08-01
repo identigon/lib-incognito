@@ -1,6 +1,10 @@
 plugins {
     `java-library`
     `maven-publish`
+    // Minimal code hygiene, kept in step with sibling repos (../play-bazlang, ../lib-alterego).
+    // Tidy-only (no googleJavaFormat) so it does not reflow the hand-maintained style. SpotBugs +
+    // find-sec-bugs is a tracked follow-up (see PLAN).
+    id("com.diffplug.spotless") version "8.8.0"
 }
 
 group = "io.github.dconneely"
@@ -13,6 +17,18 @@ java {
     // Maven Central requires both alongside the binary jar.
     withSourcesJar()
     withJavadocJar()
+}
+
+// Light, non-reflowing hygiene: tidy imports/whitespace only, never a full reformat (which would
+// fight the hand-maintained style). `spotlessCheck` runs as part of `check`; `spotlessApply` fixes.
+spotless {
+    java {
+        target("src/**/*.java")
+        importOrder()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }
 
 repositories {

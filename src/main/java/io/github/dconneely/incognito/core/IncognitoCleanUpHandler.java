@@ -4,9 +4,8 @@ import io.github.dconneely.incognito.api.PipelineContext;
 import io.github.dconneely.incognito.engine.DialectHandler;
 import io.github.dconneely.incognito.engine.GenericDialectHandler;
 import io.github.dconneely.incognito.engine.PostgresDialectHandler;
-import io.github.dconneely.incognito.engine.TableDependencyGraph;
 import io.github.dconneely.incognito.engine.SchemaInspector;
-
+import io.github.dconneely.incognito.engine.TableDependencyGraph;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -14,7 +13,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Compensating transaction handler. When a pipeline fails mid-execution, this handler
@@ -49,7 +47,7 @@ public final class IncognitoCleanUpHandler {
     public static void compensate(PipelineContext context) {
         Object planObj = context.attributes().get("incognito.schema.executionPlan");
         if (planObj == null) return;
-        TableDependencyGraph.TopologicalExecutionPlan plan = 
+        TableDependencyGraph.TopologicalExecutionPlan plan =
             (TableDependencyGraph.TopologicalExecutionPlan) planObj;
 
         Map<String, SchemaInspector.TableMetadata> metadataByName = Collections.emptyMap();
@@ -101,7 +99,6 @@ public final class IncognitoCleanUpHandler {
             Object droppedObj = context.attributes().get("incognito.droppedForeignKeys");
             if (droppedObj instanceof List<?> droppedList && !droppedList.isEmpty()) {
                 try {
-                    @SuppressWarnings("unchecked")
                     List<DialectHandler.DroppedForeignKey> dropped =
                         (List<DialectHandler.DroppedForeignKey>) droppedList;
                     dialect.recreateForeignKeys(targetConn, dropped);

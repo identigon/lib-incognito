@@ -1,19 +1,14 @@
 package io.github.dconneely.incognito.policy;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoException;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
-import io.github.dconneely.incognito.api.RedactionStrategy;
-import io.github.dconneely.incognito.api.SurrogateStrategy;
-
-import org.junit.jupiter.api.Test;
-
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class YamlConfigTest {
 

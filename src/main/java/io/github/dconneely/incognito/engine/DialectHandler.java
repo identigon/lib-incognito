@@ -9,7 +9,7 @@ import java.util.List;
  * batch rewriting, insert syntax, and sequence resynchronization.
  */
 public interface DialectHandler {
-    
+
     /**
      * Called before loading a table. Used to suppress foreign key enforcement
      * and user triggers (e.g., via session_replication_role or ALTER TABLE).

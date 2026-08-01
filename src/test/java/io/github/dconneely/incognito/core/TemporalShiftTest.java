@@ -1,20 +1,18 @@
 package io.github.dconneely.incognito.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 import io.github.dconneely.alterego.AlterEgo;
 import io.github.dconneely.alterego.Transformation;
-
-import org.junit.jupiter.api.Test;
-
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit-tests {@link TableTransformLoadStage#shiftTemporalOrNull} across every temporal type. The JDBC

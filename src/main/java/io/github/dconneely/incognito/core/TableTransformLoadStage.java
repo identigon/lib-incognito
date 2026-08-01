@@ -4,21 +4,19 @@ import io.github.dconneely.alterego.AlterEgo;
 import io.github.dconneely.alterego.Randomness;
 import io.github.dconneely.alterego.Transformation;
 import io.github.dconneely.incognito.api.ColumnRole;
+import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoException;
 import io.github.dconneely.incognito.api.KeyTranslationStore;
 import io.github.dconneely.incognito.api.PipelineContext;
 import io.github.dconneely.incognito.api.PipelineStage;
+import io.github.dconneely.incognito.api.QuasiIdStrategy;
+import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.engine.SchemaInspector;
 import io.github.dconneely.incognito.engine.TableDependencyGraph;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import io.github.dconneely.incognito.policy.ColumnPolicy;
 import io.github.dconneely.incognito.policy.TablePolicy;
-import io.github.dconneely.incognito.api.DirectIdStrategy;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
-import io.github.dconneely.incognito.api.SurrogateStrategy;
-
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -43,7 +41,6 @@ public final class TableTransformLoadStage implements PipelineStage {
     public TableTransformLoadStage() {}
 
     private static final int FETCH_SIZE = 5000;
-    private static final int BATCH_SIZE = 1000;
     /** Cascade-store attribute-name prefix under which a row's source FK ids are published for ancestor walking. */
     private static final String LINK_PREFIX = "@fk:";
     /** SYNTHESISE window for dates: ±5y destroys the identifying year (SPEC Appendix B). */
@@ -211,7 +208,7 @@ public final class TableTransformLoadStage implements PipelineStage {
 
             sourceConn.setAutoCommit(false);
             targetConn.setAutoCommit(false);
-            
+
             io.github.dconneely.incognito.engine.DialectHandler dialect = getDialectHandler(targetConn);
             String pkColumn = tableMeta.primaryKeyColumns().isEmpty() ? null : tableMeta.primaryKeyColumns().getFirst();
 
@@ -219,7 +216,7 @@ public final class TableTransformLoadStage implements PipelineStage {
                 stmt.setFetchSize(FETCH_SIZE);
                 try (ResultSet rs = stmt.executeQuery(selectSql);
                      BulkDatabaseLoadStage loader = new BulkDatabaseLoadStage(dialect, targetConn, tableName, columnsToProcess, hasIdentityPk, pkColumn)) {
-                     
+
                     ResultSetMetaData rsMeta = rs.getMetaData();
                     Object[] rowBuf = new Object[columnsToProcess.size()];
 
@@ -259,7 +256,7 @@ public final class TableTransformLoadStage implements PipelineStage {
                                     transformedValue = transformer.transform(
                                         originalValue, rs, sourcePk, sqlType, surrogateCounter, context, tableMeta);
                                 } catch (CyclicFkException e) {
-                                    // Defer this update. We will create the DeferredUpdate after the row loop 
+                                    // Defer this update. We will create the DeferredUpdate after the row loop
                                     // when the target PK is definitely known.
                                     rowDeferred.add(new PendingUpdate(colName, e.referencedTable, e.sourceFkValue));
                                     transformedValue = getPlaceholderForType(sqlType);
@@ -314,7 +311,7 @@ public final class TableTransformLoadStage implements PipelineStage {
 
                             loader.insertRow(rowBuf);
                         }
-                        
+
                         rowCount = loader.getRowCount();
                 }
             }
@@ -465,7 +462,7 @@ public final class TableTransformLoadStage implements PipelineStage {
             case ALTEREGO_PHONE -> alterEgo.phoneNumber();
             case ALTEREGO_GENERIC -> alterEgo.bind(domain, (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
         };
-        
+
         Transformation<String> finalTransformation = isUnique ? transformation.unique() : transformation;
 
         return (value, rs, pk, sqlType, counter, ctx, meta) -> {
@@ -582,7 +579,7 @@ public final class TableTransformLoadStage implements PipelineStage {
             case JITTER_DAYS -> {
                 int days = colPolicy.jitterDays() > 0 ? colPolicy.jitterDays() : 14;
                 String group = colPolicy.coherenceGroup();
-                
+
                 if (group == null) {
                     Transformation<LocalDate> dateTransform = alterEgo.shiftDate(days);
                     Transformation<java.time.LocalDateTime> dateTimeTransform = alterEgo.shiftDateTime(days, 0);

@@ -9,7 +9,6 @@ import io.github.dconneely.incognito.api.PipelineStage;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**

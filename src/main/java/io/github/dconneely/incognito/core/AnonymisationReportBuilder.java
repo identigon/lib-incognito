@@ -7,7 +7,6 @@ import io.github.dconneely.incognito.api.PipelineStage;
 import io.github.dconneely.incognito.engine.SchemaInspector;
 import io.github.dconneely.incognito.engine.TableDependencyGraph;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-import io.github.dconneely.incognito.policy.ColumnPolicy;
 import io.github.dconneely.incognito.policy.TablePolicy;
 
 import java.util.ArrayList;
@@ -45,9 +44,9 @@ public final class AnonymisationReportBuilder {
 
         TableDependencyGraph.TopologicalExecutionPlan plan = (TableDependencyGraph.TopologicalExecutionPlan) planObj;
         List<SchemaInspector.TableMetadata> metadataList = (List<SchemaInspector.TableMetadata>) metaObj;
-        Map<String, List<AnonymisationReport.InferSuggestion>> suggestions = inferObj != null ? 
+        Map<String, List<AnonymisationReport.InferSuggestion>> suggestions = inferObj != null ?
             (Map<String, List<AnonymisationReport.InferSuggestion>>) inferObj : Collections.emptyMap();
-        Map<String, Long> rowsPerTable = rowsObj != null ? 
+        Map<String, Long> rowsPerTable = rowsObj != null ?
             (Map<String, Long>) rowsObj : Collections.emptyMap();
         List<String> verifiedTables = verifiedTablesObj != null ?
             (List<String>) verifiedTablesObj : Collections.emptyList();
@@ -58,7 +57,7 @@ public final class AnonymisationReportBuilder {
         for (String tableName : plan.sequentialTableOrder()) {
             SchemaInspector.TableMetadata tableMeta = metadataList.stream()
                 .filter(m -> m.tableName().equals(tableName)).findFirst().orElse(null);
-            
+
             if (tableMeta == null) continue;
 
             Optional<TablePolicy> tablePolicyOpt = policy.table(tableName);

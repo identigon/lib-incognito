@@ -1,5 +1,16 @@
 package io.github.dconneely.incognito.benchmark;
 
+import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
+import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
+import static io.github.dconneely.incognito.api.ColumnRole.PRIMARY_KEY;
+import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_EMAIL;
+import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_GENERIC;
+import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_PHONE;
+import static io.github.dconneely.incognito.api.SurrogateStrategy.SEQUENTIAL_LONG;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
@@ -10,15 +21,6 @@ import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
 import io.github.dconneely.incognito.policy.ColumnPolicy;
-
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import javax.sql.DataSource;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -34,17 +36,13 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
-import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
-import static io.github.dconneely.incognito.api.ColumnRole.PRIMARY_KEY;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_EMAIL;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_GENERIC;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_PHONE;
-import static io.github.dconneely.incognito.api.SurrogateStrategy.SEQUENTIAL_LONG;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Phase-7 benchmark: Pagila — the canonical PostgreSQL Sakila port (pinned to tag {@code

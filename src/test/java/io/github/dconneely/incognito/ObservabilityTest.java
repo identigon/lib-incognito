@@ -1,13 +1,12 @@
 package io.github.dconneely.incognito;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.github.dconneely.incognito.api.PipelineContext;
 import io.github.dconneely.incognito.core.DefaultPipelineContext;
 import io.github.dconneely.incognito.core.IncognitoCleanUpHandler;
 import io.github.dconneely.incognito.engine.TableDependencyGraph;
-
-import org.junit.jupiter.api.Test;
-
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -19,9 +18,8 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.Test;
 
 /**
  * Locks the observability behaviour of the swallowed compensation failures: a best-effort

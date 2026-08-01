@@ -1,15 +1,13 @@
 package io.github.dconneely.incognito.core;
 
-import io.github.dconneely.alterego.AlterEgo;
-import io.github.dconneely.incognito.api.PipelineContext;
-
-import org.junit.jupiter.api.Test;
-
-import java.util.HashMap;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import io.github.dconneely.alterego.AlterEgo;
+import io.github.dconneely.incognito.api.PipelineContext;
+import java.util.HashMap;
+import java.util.List;
+import org.junit.jupiter.api.Test;
 
 /**
  * Locks the salt-lifecycle invariant (SPEC §5.1/§8.1, hard invariant 3): on completion the pipeline

@@ -6,14 +6,12 @@ import io.github.dconneely.incognito.api.IncognitoException;
 import io.github.dconneely.incognito.api.QuasiIdStrategy;
 import io.github.dconneely.incognito.api.RedactionStrategy;
 import io.github.dconneely.incognito.api.SurrogateStrategy;
-
-import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.constructor.SafeConstructor;
-
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * Parses declarative YAML configuration files into AnonymisationPolicy instances.

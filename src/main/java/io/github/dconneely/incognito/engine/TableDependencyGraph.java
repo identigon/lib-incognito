@@ -33,7 +33,7 @@ public class TableDependencyGraph {
      */
     public TopologicalExecutionPlan computeTopologicalOrder(List<SchemaInspector.TableMetadata> metadata)
             throws IncognitoException.SchemaException {
-        
+
         // Build graph where edges are B -> A (if A has an FK referencing B, B must be loaded before A).
         java.util.Map<String, java.util.List<String>> adj = new java.util.HashMap<>();
         for (SchemaInspector.TableMetadata tm : metadata) {
@@ -42,7 +42,7 @@ public class TableDependencyGraph {
                 adj.putIfAbsent(parent, new java.util.ArrayList<>());
             }
         }
-        
+
         for (SchemaInspector.TableMetadata tm : metadata) {
             String child = tm.tableName();
             for (String parent : tm.foreignKeys().values()) {
@@ -104,7 +104,7 @@ public class TableDependencyGraph {
         while (!queue.isEmpty()) {
             int compId = queue.poll();
             List<String> comp = components.get(compId);
-            
+
             // Add all tables in this component to the sequential order
             for (String t : comp) {
                 // Only include tables that are actually in the metadata (we might have edges to tables not selected)
