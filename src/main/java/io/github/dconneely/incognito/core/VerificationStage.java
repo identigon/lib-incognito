@@ -194,7 +194,9 @@ public final class VerificationStage implements PipelineStage {
         // 4. Per-period volume tolerance for temporal QUASI_ID columns (SPEC §4.2, Appendix D).
         //    JITTER_WITHIN_MONTH → monthly buckets must match exactly.
         //    JITTER_WITHIN_YEAR  → yearly buckets must match exactly.
-        //    JITTER_DAYS         → monthly buckets within ±2% (min ±1 row).
+        //    JITTER_DAYS         → YEARLY buckets within ±2% (min ±1 row). A ±N-day jitter routinely
+        //                          crosses month boundaries, so monthly buckets are not preserved and
+        //                          would raise spurious drift warnings; the yearly bucket barely leaks.
         //    SYNTHESISE          → distribution not preserved; skip.
         try (Connection sourceConn = context.source().getConnection();
              Connection targetConn2 = context.target().getConnection()) {
@@ -216,7 +218,7 @@ public final class VerificationStage implements PipelineStage {
                     switch (qiStrategy) {
                         case JITTER_WITHIN_MONTH -> { truncExpr = "date_trunc('month', " + colName + ")"; exact = true; }
                         case JITTER_WITHIN_YEAR  -> { truncExpr = "date_trunc('year', " + colName + ")";  exact = true; }
-                        case JITTER_DAYS         -> { truncExpr = "date_trunc('month', " + colName + ")"; exact = false; }
+                        case JITTER_DAYS         -> { truncExpr = "date_trunc('year', " + colName + ")";  exact = false; }
                         default -> { continue; }
                     }
 

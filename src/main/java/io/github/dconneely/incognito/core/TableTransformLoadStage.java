@@ -539,7 +539,9 @@ public final class TableTransformLoadStage implements PipelineStage {
      * path covers every jitter mode — {@code shiftInstant} has no {@code DateField} overload, so it
      * could not serve the within-month / within-year modes.)
      */
-    private static Object shiftTemporalOrNull(Object value,
+    // Package-private for direct unit testing of the Instant/LocalDateTime branches, which the JDBC
+    // read path (rs.getObject → java.sql.Date/Timestamp) does not reach.
+    static Object shiftTemporalOrNull(Object value,
             Transformation<LocalDate> dateT,
             Transformation<java.time.LocalDateTime> dateTimeT) {
         if (value instanceof LocalDate ld) return dateT.apply(ld);

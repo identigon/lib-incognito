@@ -63,6 +63,12 @@ Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; 
   `session_replication_role`. The drop/recreate is atomic (transactional DDL) and is recreated on
   failure too; a role that can do neither still fails fast.
 
+### Fixed
+
+- `JITTER_DAYS` no longer raises spurious per-period volume-drift *warnings*: because a ±N-day jitter
+  crosses month boundaries, the verification volume check now buckets it **yearly** (not monthly),
+  where a day-window barely leaks. Cosmetic — it never failed the run.
+
 ### Known gaps (tracked in PLAN.md)
 
 - Composite PK **and** cyclic FK on the same table (each supported alone; the combination fails
