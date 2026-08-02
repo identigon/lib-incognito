@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: identigon/lib-alterego
+          ref: v0.3.0
           path: lib-alterego
 
       - uses: actions/setup-java@v4
