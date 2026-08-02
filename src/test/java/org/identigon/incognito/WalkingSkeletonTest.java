@@ -2,6 +2,12 @@ package org.identigon.incognito;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import javax.sql.DataSource;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.IncognitoException;
@@ -14,12 +20,6 @@ import org.identigon.incognito.core.TableTransformLoadStage;
 import org.identigon.incognito.core.VerificationStage;
 import org.identigon.incognito.policy.AnonymisationPolicy;
 import org.identigon.incognito.policy.ColumnPolicy;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;

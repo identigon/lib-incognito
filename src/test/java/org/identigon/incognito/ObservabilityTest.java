@@ -3,10 +3,6 @@ package org.identigon.incognito;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.identigon.incognito.api.PipelineContext;
-import org.identigon.incognito.core.DefaultPipelineContext;
-import org.identigon.incognito.core.IncognitoCleanUpHandler;
-import org.identigon.incognito.engine.TableDependencyGraph;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -19,6 +15,10 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 import javax.sql.DataSource;
+import org.identigon.incognito.api.PipelineContext;
+import org.identigon.incognito.core.DefaultPipelineContext;
+import org.identigon.incognito.core.IncognitoCleanUpHandler;
+import org.identigon.incognito.engine.TableDependencyGraph;
 import org.junit.jupiter.api.Test;
 
 /**

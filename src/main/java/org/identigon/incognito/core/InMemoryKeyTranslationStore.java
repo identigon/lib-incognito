@@ -1,9 +1,9 @@
 package org.identigon.incognito.core;
 
-import org.identigon.incognito.api.IncognitoException;
-import org.identigon.incognito.api.KeyTranslationStore;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import org.identigon.incognito.api.IncognitoException;
+import org.identigon.incognito.api.KeyTranslationStore;
 
 /**
  * In-memory {@link KeyTranslationStore} — the single-JVM, non-persistent v1.0 default.

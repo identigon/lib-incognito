@@ -1,7 +1,7 @@
 package org.identigon.incognito.api;
 
-import org.identigon.incognito.policy.AnonymisationPolicy;
 import javax.sql.DataSource;
+import org.identigon.incognito.policy.AnonymisationPolicy;
 
 /**
  * Entry point for executing a relational database anonymisation pipeline.

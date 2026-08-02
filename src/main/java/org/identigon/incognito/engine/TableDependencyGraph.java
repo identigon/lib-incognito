@@ -1,7 +1,7 @@
 package org.identigon.incognito.engine;
 
-import org.identigon.incognito.api.IncognitoException;
 import java.util.List;
+import org.identigon.incognito.api.IncognitoException;
 
 /**
  * Computes a Directed Acyclic Graph (DAG) for processing order using Tarjan's SCC algorithm.

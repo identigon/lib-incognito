@@ -1,11 +1,10 @@
 package org.identigon.incognito.core;
 
-import org.identigon.incognito.engine.DialectHandler;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.List;
+import org.identigon.incognito.engine.DialectHandler;
 
 /**
  * Handles batch insertion of transformed rows into the target database.

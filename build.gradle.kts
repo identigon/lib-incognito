@@ -5,10 +5,11 @@ plugins {
     // Tidy-only (no googleJavaFormat) so it does not reflow the hand-maintained style. SpotBugs +
     // find-sec-bugs is a tracked follow-up (see PLAN).
     id("com.diffplug.spotless") version "8.8.0"
+    id("com.github.spotbugs") version "6.5.9"
 }
 
 group = "org.identigon"
-version = "0.1.0-SNAPSHOT"
+version = "1.0.0"
 
 java {
     toolchain {
@@ -57,7 +58,7 @@ tasks.withType<Javadoc>().configureEach {
 dependencies {
     // lib-alterego is exposed through Incognito's public API (e.g. PipelineContext.alterEgo()), so it
     // is `api`, not `implementation` — consumers writing custom stages compile against its types.
-    api("io.github.dconneely:alterego:0.3.0-SNAPSHOT")
+    api("org.identigon:alterego:0.3.0")
 
     // Declarative YAML policy parser — an internal detail. TODO: move to a separate incognito-yaml
     // module so the core stays dependency-lean (SPECIFICATION.md §1); currently bundled in core.
@@ -78,6 +79,8 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-postgresql")
     // PostgreSQL JDBC driver — the integration tests connect via raw DriverManager.
     testRuntimeOnly("org.postgresql:postgresql:42.7.3")
+
+    spotbugsPlugins("com.h3xstream.findsecbugs:findsecbugs-plugin:1.13.0")
 }
 
 tasks.test {
@@ -132,6 +135,23 @@ publishing {
                     url = "https://github.com/identigon/lib-incognito"
                 }
             }
+        }
+    }
+}
+
+spotbugs {
+    toolVersion = "4.9.8"
+    ignoreFailures = false
+    excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType<com.github.spotbugs.snom.SpotBugsTask>().configureEach {
+    reports {
+        create("html") {
+            required = true
+        }
+        create("xml") {
+            required = false
         }
     }
 }

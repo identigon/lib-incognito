@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Dynamic SQL is required to clone arbitrary schemas; inputs are catalog identifiers, not user inputs -->
+    <Match>
+        <Bug pattern="SQL_INJECTION_JDBC,SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE,SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING" />
+    </Match>
+
+    <!-- Expose representation by returning/accepting mutable objects (e.g. lists/maps). Expected for our builders and records. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+
+    <!-- Minor/acceptable issues for this project, including test-only issues like hardcoded passwords for Testcontainers -->
+    <Match>
+        <Bug pattern="DMI_RANDOM_USED_ONLY_ONCE,URF_UNREAD_FIELD,VA_FORMAT_STRING_USES_NEWLINE,WMI_WRONG_MAP_ITERATOR" />
+    </Match>
+
+    <!-- Test scope exclusions -->
+    <Match>
+        <Bug pattern="DLS_DEAD_LOCAL_STORE,DM_DEFAULT_ENCODING,DMI_CONSTANT_DB_PASSWORD,HARD_CODE_PASSWORD,LG_LOST_LOGGER_DUE_TO_WEAK_REFERENCE" />
+    </Match>
+</FindBugsFilter>

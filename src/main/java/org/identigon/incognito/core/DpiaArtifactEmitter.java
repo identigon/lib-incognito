@@ -1,13 +1,12 @@
 package org.identigon.incognito.core;
 
-import org.identigon.incognito.api.AnonymisationReport;
-import org.identigon.incognito.api.IncognitoException;
-import org.identigon.incognito.api.PipelineStage;
-
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.identigon.incognito.api.AnonymisationReport;
+import org.identigon.incognito.api.IncognitoException;
+import org.identigon.incognito.api.PipelineStage;
 
 /**
  * Serializes the {@link AnonymisationReport} to a DPIA artifact. Three formats are offered

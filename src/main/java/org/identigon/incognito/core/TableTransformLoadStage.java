@@ -1,21 +1,5 @@
 package org.identigon.incognito.core;
 
-import io.github.dconneely.alterego.AlterEgo;
-import io.github.dconneely.alterego.Randomness;
-import io.github.dconneely.alterego.Transformation;
-import org.identigon.incognito.api.ColumnRole;
-import org.identigon.incognito.api.DirectIdStrategy;
-import org.identigon.incognito.api.IncognitoException;
-import org.identigon.incognito.api.KeyTranslationStore;
-import org.identigon.incognito.api.PipelineContext;
-import org.identigon.incognito.api.PipelineStage;
-import org.identigon.incognito.api.QuasiIdStrategy;
-import org.identigon.incognito.api.SurrogateStrategy;
-import org.identigon.incognito.engine.SchemaInspector;
-import org.identigon.incognito.engine.TableDependencyGraph;
-import org.identigon.incognito.policy.AnonymisationPolicy;
-import org.identigon.incognito.policy.ColumnPolicy;
-import org.identigon.incognito.policy.TablePolicy;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -29,6 +13,22 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import org.identigon.alterego.AlterEgo;
+import org.identigon.alterego.Randomness;
+import org.identigon.alterego.Transformation;
+import org.identigon.incognito.api.ColumnRole;
+import org.identigon.incognito.api.DirectIdStrategy;
+import org.identigon.incognito.api.IncognitoException;
+import org.identigon.incognito.api.KeyTranslationStore;
+import org.identigon.incognito.api.PipelineContext;
+import org.identigon.incognito.api.PipelineStage;
+import org.identigon.incognito.api.QuasiIdStrategy;
+import org.identigon.incognito.api.SurrogateStrategy;
+import org.identigon.incognito.engine.SchemaInspector;
+import org.identigon.incognito.engine.TableDependencyGraph;
+import org.identigon.incognito.policy.AnonymisationPolicy;
+import org.identigon.incognito.policy.ColumnPolicy;
+import org.identigon.incognito.policy.TablePolicy;
 
 /**
  * Stage 2+3 combined for the walking skeleton: iterates tables in topological order,
@@ -477,7 +477,7 @@ public final class TableTransformLoadStage implements PipelineStage {
             }
             try {
                 return finalTransformation.apply(value.toString());
-            } catch (io.github.dconneely.alterego.AlterEgoCollisionException e) {
+            } catch (org.identigon.alterego.AlterEgoCollisionException e) {
                 long seq = counter.getAndIncrement();
                 if (sqlType == Types.INTEGER || sqlType == Types.BIGINT || sqlType == Types.NUMERIC || sqlType == Types.DECIMAL) {
                     return seq;

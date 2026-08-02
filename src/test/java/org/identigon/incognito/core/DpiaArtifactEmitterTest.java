@@ -3,12 +3,12 @@ package org.identigon.incognito.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.identigon.incognito.api.AnonymisationReport;
-import org.identigon.incognito.api.ColumnRole;
-import org.identigon.incognito.api.PipelineStage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.identigon.incognito.api.AnonymisationReport;
+import org.identigon.incognito.api.ColumnRole;
+import org.identigon.incognito.api.PipelineStage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

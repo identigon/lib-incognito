@@ -1,7 +1,7 @@
 package org.identigon.incognito.policy;
 
-import org.identigon.incognito.api.ColumnRole;
 import java.util.regex.Pattern;
+import org.identigon.incognito.api.ColumnRole;
 
 /**
  * Auto-infers baseline column roles based on column name heuristics and regex patterns.

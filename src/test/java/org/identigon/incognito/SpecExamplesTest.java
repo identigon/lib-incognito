@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import javax.sql.DataSource;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.IncognitoException;
@@ -13,7 +14,6 @@ import org.identigon.incognito.api.PipelineResult;
 import org.identigon.incognito.api.QuasiIdStrategy;
 import org.identigon.incognito.api.SurrogateStrategy;
 import org.identigon.incognito.policy.AnonymisationPolicy;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the SPECIFICATION.md examples compile and behave as documented (fabrication model). */

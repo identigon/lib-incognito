@@ -1,10 +1,10 @@
 package org.identigon.incognito.api;
 
-import org.identigon.incognito.policy.AnonymisationPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import javax.sql.DataSource;
+import org.identigon.incognito.policy.AnonymisationPolicy;
 
 /**
  * Package-private builder for {@link IncognitoPipeline}. Collects configuration and validates it;
@@ -101,10 +101,10 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
             this.salt = ephemeral;
         }
 
-        io.github.dconneely.alterego.store.MappingStore alterEgoStore =
-            new io.github.dconneely.alterego.store.InMemoryMappingStore();
+        org.identigon.alterego.store.MappingStore alterEgoStore =
+            new org.identigon.alterego.store.InMemoryMappingStore();
 
-        io.github.dconneely.alterego.AlterEgo alterEgo = io.github.dconneely.alterego.AlterEgo.builder()
+        org.identigon.alterego.AlterEgo alterEgo = org.identigon.alterego.AlterEgo.builder()
             .salt(this.salt)
             .locale(this.locale)
             .rawMappingKeys(false)

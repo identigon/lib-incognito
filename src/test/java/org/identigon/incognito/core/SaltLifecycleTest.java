@@ -3,10 +3,10 @@ package org.identigon.incognito.core;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import io.github.dconneely.alterego.AlterEgo;
-import org.identigon.incognito.api.PipelineContext;
 import java.util.HashMap;
 import java.util.List;
+import org.identigon.alterego.AlterEgo;
+import org.identigon.incognito.api.PipelineContext;
 import org.junit.jupiter.api.Test;
 
 /**

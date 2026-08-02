@@ -1,11 +1,11 @@
 package org.identigon.incognito.policy;
 
+import java.util.Objects;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.QuasiIdStrategy;
 import org.identigon.incognito.api.RedactionStrategy;
 import org.identigon.incognito.api.SurrogateStrategy;
-import java.util.Objects;
 
 /**
  * Anonymisation policy definition for a single database column (SPEC §4.1). The applicable

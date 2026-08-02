@@ -1,5 +1,6 @@
 package org.identigon.incognito.core;
 
+import java.util.List;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.IncognitoException;
 import org.identigon.incognito.api.PipelineContext;
@@ -9,7 +10,6 @@ import org.identigon.incognito.engine.TableDependencyGraph;
 import org.identigon.incognito.policy.AnonymisationPolicy;
 import org.identigon.incognito.policy.ColumnPolicy;
 import org.identigon.incognito.policy.TablePolicy;
-import java.util.List;
 
 /**
  * Stage 1: Inspects the source database schema via JDBC metadata, validates the

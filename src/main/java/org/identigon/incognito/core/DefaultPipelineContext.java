@@ -1,13 +1,13 @@
 package org.identigon.incognito.core;
 
-import io.github.dconneely.alterego.AlterEgo;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.sql.DataSource;
+import org.identigon.alterego.AlterEgo;
 import org.identigon.incognito.api.AttributeCascadeStore;
 import org.identigon.incognito.api.KeyTranslationStore;
 import org.identigon.incognito.api.PipelineContext;
 import org.identigon.incognito.policy.AnonymisationPolicy;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import javax.sql.DataSource;
 
 /**
  * The default {@link PipelineContext} — an immutable record of the run's collaborators with a mutable

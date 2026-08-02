@@ -2,12 +2,12 @@ package org.identigon.incognito.policy;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.identigon.incognito.api.ColumnRole;
-import org.identigon.incognito.api.DirectIdStrategy;
-import org.identigon.incognito.api.IncognitoException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import org.identigon.incognito.api.ColumnRole;
+import org.identigon.incognito.api.DirectIdStrategy;
+import org.identigon.incognito.api.IncognitoException;
 import org.junit.jupiter.api.Test;
 
 class YamlConfigTest {

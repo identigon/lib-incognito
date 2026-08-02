@@ -150,7 +150,7 @@ Kept in step with the sibling repos (`../play-bazlang`, `../lib-alterego`); deli
 
 - [x] **Spotless (tidy-only)** — `importOrder`, `removeUnusedImports`, trailing-whitespace, EOF newline; **no** `googleJavaFormat` (it would reflow the hand-maintained style). `spotlessCheck` runs in `check`; `spotlessApply` fixes. Plugin `com.diffplug.spotless` 8.8.0.
 - [x] **pre-commit / prek hooks** (`.pre-commit-config.yaml`) — `spotlessApply` + `compile` (local Gradle), the native hygiene hooks (trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files), and **gitleaks** secret-scanning. SpotBugs and the test suite are omitted (too slow for a commit hook).
-- [ ] **SpotBugs + find-sec-bugs** (CI, `ignoreFailures = false`) — the security-focused follow-up. The first run will flag the ~18 SQL-by-string-concatenation sites (catalog identifiers, not user input); resolve by quoting the identifiers or a justified `config/spotbugs/exclude.xml`. Versions to match `../play-bazlang`: spotbugs plugin 6.5.9, tool 4.9.8.
+- [x] **SpotBugs + find-sec-bugs** (CI, `ignoreFailures = false`) — the security-focused follow-up. The first run will flag the ~18 SQL-by-string-concatenation sites (catalog identifiers, not user input); resolve by quoting the identifiers or a justified `config/spotbugs/exclude.xml`. Versions to match `../play-bazlang`: spotbugs plugin 6.5.9, tool 4.9.8.
 - [ ] Optional / consistency-only: PMD (bug-focused; prefer over Checkstyle, which duplicates the `Xdoclint:all` gate) and JaCoCo (a coverage metric — the suite is already thorough by design).
 
 ## Post-v1.0 — possible future directions

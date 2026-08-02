@@ -1,15 +1,15 @@
 package org.identigon.incognito.policy;
 
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.IncognitoException;
 import org.identigon.incognito.api.QuasiIdStrategy;
 import org.identigon.incognito.api.RedactionStrategy;
 import org.identigon.incognito.api.SurrogateStrategy;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Map;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 

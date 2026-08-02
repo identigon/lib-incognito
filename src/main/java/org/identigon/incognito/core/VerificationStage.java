@@ -1,5 +1,15 @@
 package org.identigon.incognito.core;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.DistinguishingLint;
@@ -11,17 +21,6 @@ import org.identigon.incognito.engine.TableDependencyGraph;
 import org.identigon.incognito.policy.AnonymisationPolicy;
 import org.identigon.incognito.policy.ColumnPolicy;
 import org.identigon.incognito.policy.TablePolicy;
-
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Stage 4: Verifies the target database after loading.

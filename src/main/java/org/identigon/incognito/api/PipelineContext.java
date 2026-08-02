@@ -1,8 +1,8 @@
 package org.identigon.incognito.api;
 
-import org.identigon.incognito.policy.AnonymisationPolicy;
 import java.util.Map;
 import javax.sql.DataSource;
+import org.identigon.incognito.policy.AnonymisationPolicy;
 
 /**
  * Shared runtime context accessible across all pipeline stages.
@@ -41,7 +41,7 @@ public interface PipelineContext {
      *
      * @return the AlterEgo instance
      */
-    io.github.dconneely.alterego.AlterEgo alterEgo();
+    org.identigon.alterego.AlterEgo alterEgo();
 
     /**
      * Returns the anonymisation policy governing the run.

@@ -4,14 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import io.github.dconneely.alterego.AlterEgo;
-import io.github.dconneely.alterego.Transformation;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import org.identigon.alterego.AlterEgo;
+import org.identigon.alterego.Transformation;
 import org.junit.jupiter.api.Test;
 
 /**

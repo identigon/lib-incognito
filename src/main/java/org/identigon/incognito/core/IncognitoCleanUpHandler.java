@@ -1,11 +1,5 @@
 package org.identigon.incognito.core;
 
-import org.identigon.incognito.api.PipelineContext;
-import org.identigon.incognito.engine.DialectHandler;
-import org.identigon.incognito.engine.GenericDialectHandler;
-import org.identigon.incognito.engine.PostgresDialectHandler;
-import org.identigon.incognito.engine.SchemaInspector;
-import org.identigon.incognito.engine.TableDependencyGraph;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -13,6 +7,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import org.identigon.incognito.api.PipelineContext;
+import org.identigon.incognito.engine.DialectHandler;
+import org.identigon.incognito.engine.GenericDialectHandler;
+import org.identigon.incognito.engine.PostgresDialectHandler;
+import org.identigon.incognito.engine.SchemaInspector;
+import org.identigon.incognito.engine.TableDependencyGraph;
 
 /**
  * Compensating transaction handler. When a pipeline fails mid-execution, this handler

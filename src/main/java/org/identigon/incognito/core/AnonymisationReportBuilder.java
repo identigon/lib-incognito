@@ -1,5 +1,10 @@
 package org.identigon.incognito.core;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.identigon.incognito.api.AnonymisationReport;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.PipelineContext;
@@ -8,12 +13,6 @@ import org.identigon.incognito.engine.SchemaInspector;
 import org.identigon.incognito.engine.TableDependencyGraph;
 import org.identigon.incognito.policy.AnonymisationPolicy;
 import org.identigon.incognito.policy.TablePolicy;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 /**
  * Assembles the typed {@link AnonymisationReport} (DPIA evidence) from the pipeline context and the

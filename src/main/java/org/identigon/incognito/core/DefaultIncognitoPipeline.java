@@ -1,15 +1,14 @@
 package org.identigon.incognito.core;
 
-import io.github.dconneely.alterego.AlterEgo;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import org.identigon.alterego.AlterEgo;
 import org.identigon.incognito.api.IncognitoException;
 import org.identigon.incognito.api.IncognitoPipeline;
 import org.identigon.incognito.api.PipelineContext;
 import org.identigon.incognito.api.PipelineResult;
 import org.identigon.incognito.api.PipelineStage;
-
-import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * The default {@link IncognitoPipeline}: runs the configured stages in order, then destroys the salt

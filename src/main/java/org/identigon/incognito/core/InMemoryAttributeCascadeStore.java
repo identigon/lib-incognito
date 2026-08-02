@@ -1,9 +1,9 @@
 package org.identigon.incognito.core;
 
-import org.identigon.incognito.api.AttributeCascadeStore;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import org.identigon.incognito.api.AttributeCascadeStore;
 
 /**
  * In-memory {@link AttributeCascadeStore} — the v1.0 default: published attributes, FK linkage, and

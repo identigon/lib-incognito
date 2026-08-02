@@ -13,13 +13,13 @@ jobs:
         with:
           path: lib-incognito
 
-      # lib-incognito depends on io.github.dconneely:alterego:0.2.0-SNAPSHOT, which is not published
+      # lib-incognito depends on io.github.dconneely:alterego:0.3.0-SNAPSHOT, which is not published
       # to a public repository — it must be built into the local Maven repo first (see PLAN.md
       # "Build prerequisite"). Adjust the repository/ref if the sibling repo moves.
       - name: Check out lib-alterego (local SNAPSHOT dependency)
         uses: actions/checkout@v4
         with:
-          repository: dconneely/lib-alterego
+          repository: identigon/lib-alterego
           path: lib-alterego
 
       - uses: actions/setup-java@v4
