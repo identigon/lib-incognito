@@ -46,11 +46,11 @@ tables:
       postal_code:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
       country:           { role: PAYLOAD }
       home_phone:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
-      extension:         { role: PAYLOAD }
-      photo:             { role: PAYLOAD }
-      notes:             { role: PAYLOAD }
+      extension:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # phone extension: contact PII, code-like
+      photo:             { role: SENSITIVE,   distinguishing: true, redactionStrategy: CLEAR }   # bytea face image = biometric PII → drop
+      notes:             { role: SENSITIVE,   distinguishing: true, redactionStrategy: CONSTANT }   # free-text bios can single out a person → redact
       reports_to:        { role: FOREIGN_KEY, references: { table: employees, column: employee_id } }
-      photo_path:        { role: PAYLOAD }
+      photo_path:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # filename embeds the real surname (davolio.bmp) → fabricate
   employee_territories:
     columns:
       employee_id:  { role: FOREIGN_KEY, references: { table: employees, column: employee_id } }
@@ -112,7 +112,7 @@ tables:
       country:       { role: PAYLOAD }
       phone:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       fax:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
-      homepage:      { role: PAYLOAD }
+      homepage:      { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # identifies the supplier, like company_name
   territories:
     columns:
       territory_id:          { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }

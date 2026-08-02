@@ -43,5 +43,5 @@ tables:
       id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
       operation:  { role: PAYLOAD }
       query:      { role: PAYLOAD }
-      user_name:  { role: PAYLOAD }
+      user_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # DB username = identifiable
       changed_at: { role: PAYLOAD }

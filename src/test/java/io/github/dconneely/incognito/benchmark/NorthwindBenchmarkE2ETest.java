@@ -28,8 +28,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Phase-7 benchmark: Northwind. A real 14-table schema that stresses, together, features no other
  * test combined: a <b>self-referential FK</b> ({@code employees.reports_to → employees}, exercising
  * the cyclic-FK deferral + Pass-2 UPDATE on real data), three <b>composite-PK</b> join tables
- * ({@code order_details}, {@code employee_territories}, {@code customer_customer_demo}), <b>opaque
- * {@code bytea}</b> columns ({@code categories.picture}, {@code employees.photo}), and <b>text
+ * ({@code order_details}, {@code employee_territories}, {@code customer_customer_demo}), an <b>opaque
+ * {@code bytea}</b> column kept and audited ({@code categories.picture}) alongside a biometric one
+ * redacted ({@code employees.photo}), and <b>text
  * primary keys</b> ({@code customers.customer_id}). Schema and data come from the staged fixture
  * ({@code resources/benchmarks/northwind}); PKs are passthrough (they are not surrogatable as
  * numbers), PII is fabricated. Requires Docker.
@@ -143,6 +144,18 @@ class NorthwindBenchmarkE2ETest {
                 "employee surnames must be fabricated");
             assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM customers WHERE company_name = 'Alfreds Futterkiste'"),
                 "customer company names must be fabricated");
+
+            // SENSITIVE free-text bios (employees.notes, distinguishing) redacted to a constant — no bio survives.
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM employees WHERE notes IS NOT NULL AND notes <> 'REDACTED'"),
+                "employee notes must be redacted, not kept");
+            assertTrue(scalar(tgt, "SELECT COUNT(*) FROM employees WHERE notes = 'REDACTED'") > 0,
+                "the redaction actually ran on the populated bios");
+
+            // Biometric photo (bytea) redacted away; photo_path filename no longer leaks the real surname.
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM employees WHERE photo IS NOT NULL"),
+                "employee face images must be dropped, not copied");
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM employees WHERE photo_path LIKE '%davolio%'"),
+                "the surname embedded in photo_path must not survive");
 
             // Opaque bytea columns kept and surfaced in the DPIA report's passthrough audit (§7.2).
             List<String> catFlags = result.report().tables().stream()
