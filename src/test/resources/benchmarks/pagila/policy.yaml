@@ -84,7 +84,7 @@ tables:
       username:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
       password:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
       last_update: { role: PAYLOAD }
-      picture:     { role: PAYLOAD }   # bytea → passthrough audit
+      picture:     { role: SENSITIVE,   distinguishing: true, redactionStrategy: CLEAR }   # staff face image = biometric PII → drop
   customer:
     columns:
       customer_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }

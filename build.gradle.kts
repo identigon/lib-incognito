@@ -7,7 +7,7 @@ plugins {
     id("com.diffplug.spotless") version "8.8.0"
 }
 
-group = "io.github.dconneely"
+group = "org.identigon"
 version = "0.1.0-SNAPSHOT"
 
 java {
@@ -113,23 +113,23 @@ publishing {
                 name = "Incognito"
                 description = "A Java library that clones a production database into a schema-identical " +
                     "test database with all PII replaced by clearly fictional data."
-                url = "https://github.com/dconneely/lib-incognito"
+                url = "https://github.com/identigon/lib-incognito"
                 licenses {
                     license {
                         name = "MIT License"
-                        url = "https://github.com/dconneely/lib-incognito/blob/main/LICENCE"
+                        url = "https://github.com/identigon/lib-incognito/blob/main/LICENCE"
                     }
                 }
                 developers {
                     developer {
-                        id = "dconneely"
-                        name = "David Conneely"
+                        id = "identigon"
+                        name = "Identigon"
                     }
                 }
                 scm {
-                    connection = "scm:git:https://github.com/dconneely/lib-incognito.git"
-                    developerConnection = "scm:git:https://github.com/dconneely/lib-incognito.git"
-                    url = "https://github.com/dconneely/lib-incognito"
+                    connection = "scm:git:https://github.com/identigon/lib-incognito.git"
+                    developerConnection = "scm:git:https://github.com/identigon/lib-incognito.git"
+                    url = "https://github.com/identigon/lib-incognito"
                 }
             }
         }

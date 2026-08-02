@@ -286,7 +286,7 @@ In a diamond (`firm → office → schedule` and `firm → contract → schedule
 ## 7. Core Java 25 Interfaces & Package Blueprint
 
 ```java
-package io.github.dconneely.incognito.api;
+package org.identigon.incognito.api;
 
 import java.util.Optional;
 import javax.sql.DataSource;
@@ -351,7 +351,7 @@ public enum ColumnRole {
     BIOMETRIC_MEDIA, SPATIAL_GEOMETRY, ARRAY_ELEMENT, NETWORK_INET, JSON_DOCUMENT
 }
 
-// --- Policy (package io.github.dconneely.incognito.policy) ---
+// --- Policy (package org.identigon.incognito.policy) ---
 // A policy assigns each column a ColumnRole plus, where relevant, a strategy and/or parameters.
 // NOTE the two kinds of knob:
 //   * WHICH transformation  -> a strategy ENUM, selected by role (Surrogate/DirectId/QuasiId/Redaction).
@@ -485,7 +485,7 @@ v1.0 targets **PostgreSQL** only; `GenericDialectHandler` is an uncertified ANSI
 ## 10. Project Conventions
 
 - **Java 25** (`--release 25` via the Gradle toolchain); idiomatic records, sealed interfaces, and pattern matching.
-- **Packages** `io.github.dconneely.incognito.{api, core, spi, policy, engine}`; group id `io.github.dconneely`; published **artifactId `incognito`** (distinct from the `lib-incognito` repository/directory name).
+- **Packages** `org.identigon.incognito.{api, core, spi, policy, engine}`; group id `org.identigon`; published **artifactId `incognito`** (distinct from the `lib-incognito` repository/directory name).
 - **Gradle (Kotlin DSL)**, `java-library` + `maven-publish` plugins, toolchain pinned to 25; the build produces binary, sources, and javadoc jars and packages `LICENCE` into `META-INF/`. `./gradlew javadoc` is quality-gated (`Xdoclint:all` + `-Xwerror`).
 - **Dependencies:** `lib-alterego` (`api` — the field-transformation engine, exposed via `PipelineContext`) and SnakeYAML (`implementation` — YAML policy parsing; a future `incognito-yaml` module split is planned, §1). Test scope only: JUnit Jupiter, Testcontainers (PostgreSQL), the PostgreSQL JDBC driver, H2.
 - **Delegation boundary (§1.4):** Incognito owns relational coherence and orchestration and delegates *all* field-value transformation to `lib-alterego` — it never hand-rolls substitution, redaction, or format-preserving generation.

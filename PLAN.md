@@ -12,7 +12,7 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
 
 - [x] Set up Java 25 build (`build.gradle.kts` / `settings.gradle.kts`) with a Java 25 toolchain. `io.github.dconneely:alterego:0.2.0-SNAPSHOT` dependency. `./gradlew test` is green.
 - [x] Add `lib-alterego` and SnakeYAML dependencies (SnakeYAML bundled in core; module split tracked in Phase 3). **No Jedis / Redis in v1.0** (in-memory `KeyTranslationStore` only).
-- [x] Create package structure: `io.github.dconneely.incognito.{api,core,spi,policy,engine}`.
+- [x] Create package structure: `org.identigon.incognito.{api,core,spi,policy,engine}`.
 - [x] Core API **interfaces & records**:
   - `IncognitoPipeline`, `PipelineStage`, `PipelineContext`, `KeyTranslationStore`, `AttributeCascadeStore`.
   - `CompositeKey` record; `SurrogateStrategy`; `QuasiIdStrategy`; `DirectIdStrategy`; `RedactionStrategy`.
