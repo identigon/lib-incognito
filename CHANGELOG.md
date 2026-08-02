@@ -22,6 +22,8 @@ meaningful rather than just a feature list:
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-08-02
+
 Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; single-threaded.
 
 ### Added
