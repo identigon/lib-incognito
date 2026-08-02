@@ -57,6 +57,35 @@ primary keys to fresh surrogates and rewrites foreign keys to match, bulk-loads 
 verifies the result. It returns a `PipelineResult` carrying an `AnonymisationReport` (a DPIA
 artifact).
 
+### Configuring in YAML
+
+The same policy can live in a YAML file instead of Java, so classification is data you can review
+and diff rather than code. `YamlPolicyParser` reads it into the identical `AnonymisationPolicy`:
+
+```yaml
+autoInfer: false          # fail-closed: every column must be classified explicitly
+tables:
+  customers:
+    columns:
+      id:     { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      email:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
+      dob:    { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }
+      status: { role: PAYLOAD }   # operational data — kept real
+```
+
+```java
+AnonymisationPolicy policy;
+try (var in = Files.newInputStream(Path.of("incognito-policy.yaml"))) {
+    policy = new YamlPolicyParser().parse(in);
+}
+```
+
+Every field of the Java builder has a key (`role`, `surrogateStrategy`, `directIdStrategy`,
+`quasiIdStrategy`, `distinguishing`, `jitterDays`, `references`, `derivedFrom`, `coherenceGroup`, …).
+All five benchmark end-to-end tests drive the pipeline from a `policy.yaml` resource, so the YAML
+path is exercised against every real-schema scenario (composite and self-referential keys, opaque
+column types, table omission).
+
 ## How it works
 
 Every fabricated value is a deterministic function of a per-run secret salt, a domain, and the

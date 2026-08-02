@@ -1,26 +1,16 @@
 package io.github.dconneely.incognito.benchmark;
 
-import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
-import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
-import static io.github.dconneely.incognito.api.ColumnRole.PRIMARY_KEY;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_EMAIL;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_GENERIC;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_PHONE;
-import static io.github.dconneely.incognito.api.SurrogateStrategy.SEQUENTIAL_LONG;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
 import io.github.dconneely.incognito.api.PipelineResult;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
 import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.core.SchemaDiscoveryStage;
 import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-import io.github.dconneely.incognito.policy.ColumnPolicy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -104,64 +94,13 @@ class ChinookBenchmarkE2ETest {
         if (pg != null) pg.stop();
     }
 
-    // --- policy helpers ---
-    private static ColumnPolicy pk(String name) {
-        return ColumnPolicy.builder(name).role(PRIMARY_KEY).surrogateStrategy(SEQUENTIAL_LONG).build();
-    }
-    private static ColumnPolicy fk(String name, String table, String col) {
-        return ColumnPolicy.builder(name).role(FOREIGN_KEY).references(table, col).build();
-    }
-    private static ColumnPolicy id(String name, DirectIdStrategy s) {
-        return ColumnPolicy.builder(name).role(ColumnRole.DIRECT_ID).directIdStrategy(s).build();
-    }
 
-    private AnonymisationPolicy policy() {
-        return AnonymisationPolicy.builder()
-            .table("artist", t -> t.column(pk("artist_id")).column("name", PAYLOAD))
-            .table("album", t -> t.column(pk("album_id")).column("title", PAYLOAD)
-                .column(fk("artist_id", "artist", "artist_id")))
-            .table("genre", t -> t.column(pk("genre_id")).column("name", PAYLOAD))
-            .table("media_type", t -> t.column(pk("media_type_id")).column("name", PAYLOAD))
-            .table("track", t -> t.column(pk("track_id")).column("name", PAYLOAD)
-                .column(fk("album_id", "album", "album_id"))
-                .column(fk("media_type_id", "media_type", "media_type_id"))
-                .column(fk("genre_id", "genre", "genre_id"))
-                .column("composer", PAYLOAD).column("milliseconds", PAYLOAD)
-                .column("bytes", PAYLOAD).column("unit_price", PAYLOAD))
-            .table("playlist", t -> t.column(pk("playlist_id")).column("name", PAYLOAD))
-            .table("playlist_track", t -> t
-                .column(fk("playlist_id", "playlist", "playlist_id"))
-                .column(fk("track_id", "track", "track_id")))
-            // self-referential FK (reports_to) + reassigned INT PK.
-            .table("employee", t -> t.column(pk("employee_id"))
-                .column(id("last_name", ALTEREGO_GENERIC)).column(id("first_name", ALTEREGO_GENERIC))
-                .column("title", PAYLOAD).column(fk("reports_to", "employee", "employee_id"))
-                .column(ColumnPolicy.builder("birth_date").role(ColumnRole.QUASI_ID)
-                    .quasiIdStrategy(QuasiIdStrategy.SYNTHESISE).build())          // DOB (§7.3 #5)
-                .column("hire_date", PAYLOAD).column(id("address", ALTEREGO_GENERIC))
-                .column("city", PAYLOAD).column("state", PAYLOAD).column("country", PAYLOAD)
-                .column(id("postal_code", ALTEREGO_GENERIC))
-                .column(id("phone", ALTEREGO_PHONE)).column(id("fax", ALTEREGO_PHONE))
-                .column(id("email", ALTEREGO_EMAIL)))
-            .table("customer", t -> t.column(pk("customer_id"))
-                .column(id("first_name", ALTEREGO_GENERIC)).column(id("last_name", ALTEREGO_GENERIC))
-                .column("company", PAYLOAD).column(id("address", ALTEREGO_GENERIC))
-                .column("city", PAYLOAD).column("state", PAYLOAD).column("country", PAYLOAD)
-                .column(id("postal_code", ALTEREGO_GENERIC))
-                .column(id("phone", ALTEREGO_PHONE)).column(id("fax", ALTEREGO_PHONE))
-                .column(id("email", ALTEREGO_EMAIL))
-                .column(fk("support_rep_id", "employee", "employee_id")))
-            .table("invoice", t -> t.column(pk("invoice_id"))
-                .column(fk("customer_id", "customer", "customer_id"))
-                .column("invoice_date", PAYLOAD).column(id("billing_address", ALTEREGO_GENERIC))
-                .column("billing_city", PAYLOAD).column("billing_state", PAYLOAD)
-                .column("billing_country", PAYLOAD).column(id("billing_postal_code", ALTEREGO_GENERIC))
-                .column("total", PAYLOAD))
-            .table("invoice_line", t -> t.column(pk("invoice_line_id"))
-                .column(fk("invoice_id", "invoice", "invoice_id"))
-                .column(fk("track_id", "track", "track_id"))
-                .column("unit_price", PAYLOAD).column("quantity", PAYLOAD))
-            .build();
+    /** Loads the policy from a YAML test resource (exercises the {@code YamlPolicyParser} path E2E). */
+    private AnonymisationPolicy policy() throws Exception {
+        try (var in = ChinookBenchmarkE2ETest.class.getResourceAsStream("/benchmarks/chinook/policy.yaml")) {
+            if (in == null) throw new IllegalStateException("missing test resource: /benchmarks/chinook/policy.yaml");
+            return new io.github.dconneely.incognito.policy.YamlPolicyParser().parse(in);
+        }
     }
 
     @Test

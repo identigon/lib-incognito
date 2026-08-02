@@ -1,23 +1,16 @@
 package io.github.dconneely.incognito.benchmark;
 
-import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
-import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
-import static io.github.dconneely.incognito.api.ColumnRole.PRIMARY_KEY;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_GENERIC;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.dconneely.incognito.api.ColumnRole;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
 import io.github.dconneely.incognito.api.PipelineResult;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
 import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.core.SchemaDiscoveryStage;
 import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-import io.github.dconneely.incognito.policy.ColumnPolicy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -105,51 +98,13 @@ class EmployeesBenchmarkE2ETest {
         if (pg != null) pg.stop();
     }
 
-    // --- policy helpers ---
-    private static ColumnPolicy pkSeq(String name) {
-        return ColumnPolicy.builder(name).role(PRIMARY_KEY).surrogateStrategy(SurrogateStrategy.SEQUENTIAL_LONG).build();
-    }
-    private static ColumnPolicy pkPass(String name) {
-        return ColumnPolicy.builder(name).role(PRIMARY_KEY).surrogateStrategy(SurrogateStrategy.PASSTHROUGH_SURROGATE).build();
-    }
-    private static ColumnPolicy fk(String name, String table, String col) {
-        return ColumnPolicy.builder(name).role(FOREIGN_KEY).references(table, col).build();
-    }
-    private static ColumnPolicy id(String name) {
-        return ColumnPolicy.builder(name).role(ColumnRole.DIRECT_ID).directIdStrategy(ALTEREGO_GENERIC).build();
-    }
 
-    private AnonymisationPolicy policy() {
-        return AnonymisationPolicy.builder()
-            // SERIAL PK reassigned → forces FK rewrite into every child composite key.
-            .table("employee", t -> t
-                .column(pkSeq("emp_no"))
-                .column(ColumnPolicy.builder("birth_date").role(ColumnRole.QUASI_ID)
-                    .quasiIdStrategy(QuasiIdStrategy.SYNTHESISE).build())   // strongly-identifying DOB (§7.3 #5)
-                .column(id("first_name")).column(id("last_name"))
-                .column("gender", PAYLOAD).column("hire_date", PAYLOAD))
-            .table("department", t -> t
-                .column(pkPass("dept_no"))                                  // 'd001'.. non-identifying code
-                .column("dept_name", PAYLOAD))
-            .table("dept_emp", t -> t
-                .column(fk("emp_no", "employee", "emp_no")).column(fk("dept_no", "department", "dept_no"))
-                .column("from_date", PAYLOAD).column("to_date", PAYLOAD))
-            .table("dept_manager", t -> t
-                .column(fk("emp_no", "employee", "emp_no")).column(fk("dept_no", "department", "dept_no"))
-                .column("from_date", PAYLOAD).column("to_date", PAYLOAD))
-            // composite PK (emp_no, title, from_date): surrogated FK + kept text + kept date.
-            .table("title", t -> t
-                .column(fk("emp_no", "employee", "emp_no"))
-                .column("title", PAYLOAD).column("from_date", PAYLOAD).column("to_date", PAYLOAD))
-            // composite PK (emp_no, from_date): surrogated FK + kept date.
-            .table("salary", t -> t
-                .column(fk("emp_no", "employee", "emp_no"))
-                .column("amount", PAYLOAD).column("from_date", PAYLOAD).column("to_date", PAYLOAD))
-            // trigger-populated audit log: empty, but must still be classified (fail-closed).
-            .table("audit", t -> t
-                .column(pkSeq("id")).column("operation", PAYLOAD).column("query", PAYLOAD)
-                .column("user_name", PAYLOAD).column("changed_at", PAYLOAD))
-            .build();
+    /** Loads the policy from a YAML test resource (exercises the {@code YamlPolicyParser} path E2E). */
+    private AnonymisationPolicy policy() throws Exception {
+        try (var in = EmployeesBenchmarkE2ETest.class.getResourceAsStream("/benchmarks/employees/policy.yaml")) {
+            if (in == null) throw new IllegalStateException("missing test resource: /benchmarks/employees/policy.yaml");
+            return new io.github.dconneely.incognito.policy.YamlPolicyParser().parse(in);
+        }
     }
 
     @Test

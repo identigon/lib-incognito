@@ -1,24 +1,14 @@
 package io.github.dconneely.incognito.benchmark;
 
-import static io.github.dconneely.incognito.api.ColumnRole.FOREIGN_KEY;
-import static io.github.dconneely.incognito.api.ColumnRole.PAYLOAD;
-import static io.github.dconneely.incognito.api.ColumnRole.PRIMARY_KEY;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_GENERIC;
-import static io.github.dconneely.incognito.api.DirectIdStrategy.ALTEREGO_PHONE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.dconneely.incognito.api.ColumnRole;
-import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
 import io.github.dconneely.incognito.api.PipelineResult;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
-import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.core.SchemaDiscoveryStage;
 import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-import io.github.dconneely.incognito.policy.ColumnPolicy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -102,70 +92,13 @@ class NorthwindBenchmarkE2ETest {
         if (pg != null) pg.stop();
     }
 
-    // --- policy helpers ---
-    private static ColumnPolicy pk(String name) {
-        return ColumnPolicy.builder(name).role(PRIMARY_KEY).surrogateStrategy(SurrogateStrategy.PASSTHROUGH_SURROGATE).build();
-    }
-    private static ColumnPolicy fk(String name, String table, String col) {
-        return ColumnPolicy.builder(name).role(FOREIGN_KEY).references(table, col).build();
-    }
-    private static ColumnPolicy id(String name, DirectIdStrategy s) {
-        return ColumnPolicy.builder(name).role(ColumnRole.DIRECT_ID).directIdStrategy(s).build();
-    }
 
-    private AnonymisationPolicy policy() {
-        return AnonymisationPolicy.builder()
-            .table("categories", t -> t.column(pk("category_id"))
-                .column("category_name", PAYLOAD).column("description", PAYLOAD).column("picture", PAYLOAD))
-            .table("customer_demographics", t -> t.column(pk("customer_type_id")).column("customer_desc", PAYLOAD))
-            .table("customer_customer_demo", t -> t
-                .column(fk("customer_id", "customers", "customer_id"))
-                .column(fk("customer_type_id", "customer_demographics", "customer_type_id")))
-            .table("customers", t -> t.column(pk("customer_id"))
-                .column(id("company_name", ALTEREGO_GENERIC)).column(id("contact_name", ALTEREGO_GENERIC))
-                .column("contact_title", PAYLOAD).column(id("address", ALTEREGO_GENERIC))
-                .column("city", PAYLOAD).column("region", PAYLOAD).column(id("postal_code", ALTEREGO_GENERIC))
-                .column("country", PAYLOAD).column(id("phone", ALTEREGO_PHONE)).column(id("fax", ALTEREGO_PHONE)))
-            .table("employees", t -> t.column(pk("employee_id"))
-                .column(id("last_name", ALTEREGO_GENERIC)).column(id("first_name", ALTEREGO_GENERIC))
-                .column("title", PAYLOAD).column("title_of_courtesy", PAYLOAD)
-                .column(ColumnPolicy.builder("birth_date").role(ColumnRole.QUASI_ID).quasiIdStrategy(QuasiIdStrategy.SYNTHESISE).build())
-                .column("hire_date", PAYLOAD).column(id("address", ALTEREGO_GENERIC))
-                .column("city", PAYLOAD).column("region", PAYLOAD).column(id("postal_code", ALTEREGO_GENERIC))
-                .column("country", PAYLOAD).column(id("home_phone", ALTEREGO_PHONE)).column("extension", PAYLOAD)
-                .column("photo", PAYLOAD).column("notes", PAYLOAD)
-                .column(fk("reports_to", "employees", "employee_id")).column("photo_path", PAYLOAD))
-            .table("employee_territories", t -> t
-                .column(fk("employee_id", "employees", "employee_id"))
-                .column(fk("territory_id", "territories", "territory_id")))
-            .table("order_details", t -> t
-                .column(fk("order_id", "orders", "order_id")).column(fk("product_id", "products", "product_id"))
-                .column("unit_price", PAYLOAD).column("quantity", PAYLOAD).column("discount", PAYLOAD))
-            .table("orders", t -> t.column(pk("order_id"))
-                .column(fk("customer_id", "customers", "customer_id")).column(fk("employee_id", "employees", "employee_id"))
-                .column("order_date", PAYLOAD).column("required_date", PAYLOAD).column("shipped_date", PAYLOAD)
-                .column(fk("ship_via", "shippers", "shipper_id")).column("freight", PAYLOAD)
-                .column(id("ship_name", ALTEREGO_GENERIC)).column(id("ship_address", ALTEREGO_GENERIC))
-                .column("ship_city", PAYLOAD).column("ship_region", PAYLOAD)
-                .column(id("ship_postal_code", ALTEREGO_GENERIC)).column("ship_country", PAYLOAD))
-            .table("products", t -> t.column(pk("product_id")).column("product_name", PAYLOAD)
-                .column(fk("supplier_id", "suppliers", "supplier_id")).column(fk("category_id", "categories", "category_id"))
-                .column("quantity_per_unit", PAYLOAD).column("unit_price", PAYLOAD).column("units_in_stock", PAYLOAD)
-                .column("units_on_order", PAYLOAD).column("reorder_level", PAYLOAD).column("discontinued", PAYLOAD))
-            .table("region", t -> t.column(pk("region_id")).column("region_description", PAYLOAD))
-            .table("shippers", t -> t.column(pk("shipper_id"))
-                .column(id("company_name", ALTEREGO_GENERIC)).column(id("phone", ALTEREGO_PHONE)))
-            .table("suppliers", t -> t.column(pk("supplier_id"))
-                .column(id("company_name", ALTEREGO_GENERIC)).column(id("contact_name", ALTEREGO_GENERIC))
-                .column("contact_title", PAYLOAD).column(id("address", ALTEREGO_GENERIC))
-                .column("city", PAYLOAD).column("region", PAYLOAD).column(id("postal_code", ALTEREGO_GENERIC))
-                .column("country", PAYLOAD).column(id("phone", ALTEREGO_PHONE)).column(id("fax", ALTEREGO_PHONE))
-                .column("homepage", PAYLOAD))
-            .table("territories", t -> t.column(pk("territory_id"))
-                .column("territory_description", PAYLOAD).column(fk("region_id", "region", "region_id")))
-            .table("us_states", t -> t.column(pk("state_id"))
-                .column("state_name", PAYLOAD).column("state_abbr", PAYLOAD).column("state_region", PAYLOAD))
-            .build();
+    /** Loads the policy from a YAML test resource (exercises the {@code YamlPolicyParser} path E2E). */
+    private AnonymisationPolicy policy() throws Exception {
+        try (var in = NorthwindBenchmarkE2ETest.class.getResourceAsStream("/benchmarks/northwind/policy.yaml")) {
+            if (in == null) throw new IllegalStateException("missing test resource: /benchmarks/northwind/policy.yaml");
+            return new io.github.dconneely.incognito.policy.YamlPolicyParser().parse(in);
+        }
     }
 
     @Test

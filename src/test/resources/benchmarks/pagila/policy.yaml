@@ -1,0 +1,114 @@
+# Pagila (Sakila) anonymisation policy (was the Java builder in PagilaBenchmarkE2ETest), loaded via
+# YamlPolicyParser. The partitioned `payment` table (and its partitions) is simply omitted — undeclared
+# tables are skipped. staff PK is passthrough so store.manager_staff_id (no FK constraint) stays coherent.
+autoInfer: false
+tables:
+  country:
+    columns:
+      country_id:  { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      country:     { role: PAYLOAD }
+      last_update: { role: PAYLOAD }
+  city:
+    columns:
+      city_id:     { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      city:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
+      country_id:  { role: FOREIGN_KEY, references: { table: country, column: country_id } }
+      last_update: { role: PAYLOAD }
+  address:
+    columns:
+      address_id:  { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      address:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      address2:    { role: PAYLOAD }   # a single constant (empty) value in Sakila — nothing to fabricate
+      district:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      city_id:     { role: FOREIGN_KEY, references: { table: city, column: city_id } }
+      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      phone:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      last_update: { role: PAYLOAD }
+  actor:
+    columns:
+      actor_id:    { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      first_name:  { role: PAYLOAD }
+      last_name:   { role: PAYLOAD }
+      last_update: { role: PAYLOAD }
+  category:
+    columns:
+      category_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:        { role: PAYLOAD }
+      last_update: { role: PAYLOAD }
+  language:
+    columns:
+      language_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:        { role: PAYLOAD }
+      last_update: { role: PAYLOAD }
+  film:
+    columns:
+      film_id:              { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      title:                { role: PAYLOAD }
+      description:          { role: PAYLOAD }
+      release_year:         { role: PAYLOAD }
+      language_id:          { role: FOREIGN_KEY, references: { table: language, column: language_id } }
+      original_language_id: { role: FOREIGN_KEY, references: { table: language, column: language_id } }
+      rental_duration:      { role: PAYLOAD }
+      rental_rate:          { role: PAYLOAD }
+      length:               { role: PAYLOAD }
+      replacement_cost:     { role: PAYLOAD }
+      rating:               { role: PAYLOAD }   # enum (mpaa_rating)
+      last_update:          { role: PAYLOAD }
+      special_features:     { role: PAYLOAD }   # text[] → passthrough
+      fulltext:             { role: PAYLOAD }   # tsvector → passthrough
+  film_actor:   # composite PK (actor_id, film_id)
+    columns:
+      actor_id:    { role: FOREIGN_KEY, references: { table: actor, column: actor_id } }
+      film_id:     { role: FOREIGN_KEY, references: { table: film, column: film_id } }
+      last_update: { role: PAYLOAD }
+  film_category:   # composite PK (film_id, category_id)
+    columns:
+      film_id:     { role: FOREIGN_KEY, references: { table: film, column: film_id } }
+      category_id: { role: FOREIGN_KEY, references: { table: category, column: category_id } }
+      last_update: { role: PAYLOAD }
+  store:
+    columns:
+      store_id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      manager_staff_id: { role: PAYLOAD }   # no FK constraint in v3.0.0; coherent via staff passthrough
+      address_id:       { role: FOREIGN_KEY, references: { table: address, column: address_id } }
+      last_update:      { role: PAYLOAD }
+  staff:
+    columns:
+      staff_id:    { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      first_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      address_id:  { role: FOREIGN_KEY, references: { table: address, column: address_id } }
+      email:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
+      store_id:    { role: FOREIGN_KEY, references: { table: store, column: store_id } }
+      active:      { role: PAYLOAD }
+      username:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      password:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      last_update: { role: PAYLOAD }
+      picture:     { role: PAYLOAD }   # bytea → passthrough audit
+  customer:
+    columns:
+      customer_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      store_id:    { role: FOREIGN_KEY, references: { table: store, column: store_id } }
+      first_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      email:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
+      address_id:  { role: FOREIGN_KEY, references: { table: address, column: address_id } }
+      activebool:  { role: PAYLOAD }
+      create_date: { role: PAYLOAD }
+      last_update: { role: PAYLOAD }
+      active:      { role: PAYLOAD }
+  inventory:
+    columns:
+      inventory_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      film_id:      { role: FOREIGN_KEY, references: { table: film, column: film_id } }
+      store_id:     { role: FOREIGN_KEY, references: { table: store, column: store_id } }
+      last_update:  { role: PAYLOAD }
+  rental:
+    columns:
+      rental_id:    { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      rental_date:  { role: PAYLOAD }
+      inventory_id: { role: FOREIGN_KEY, references: { table: inventory, column: inventory_id } }
+      customer_id:  { role: FOREIGN_KEY, references: { table: customer, column: customer_id } }
+      return_date:  { role: PAYLOAD }
+      staff_id:     { role: FOREIGN_KEY, references: { table: staff, column: staff_id } }
+      last_update:  { role: PAYLOAD }

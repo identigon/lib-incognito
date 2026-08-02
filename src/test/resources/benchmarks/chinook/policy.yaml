@@ -1,0 +1,90 @@
+# Chinook anonymisation policy (was the Java builder in ChinookBenchmarkE2ETest), loaded via
+# YamlPolicyParser. INT PKs are reassigned (SEQUENTIAL_LONG); employee.reports_to is a self-referential FK.
+autoInfer: false
+tables:
+  artist:
+    columns:
+      artist_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:      { role: PAYLOAD }
+  album:
+    columns:
+      album_id:  { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      title:     { role: PAYLOAD }
+      artist_id: { role: FOREIGN_KEY, references: { table: artist, column: artist_id } }
+  genre:
+    columns:
+      genre_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:     { role: PAYLOAD }
+  media_type:
+    columns:
+      media_type_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:          { role: PAYLOAD }
+  track:
+    columns:
+      track_id:      { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:          { role: PAYLOAD }
+      album_id:      { role: FOREIGN_KEY, references: { table: album, column: album_id } }
+      media_type_id: { role: FOREIGN_KEY, references: { table: media_type, column: media_type_id } }
+      genre_id:      { role: FOREIGN_KEY, references: { table: genre, column: genre_id } }
+      composer:      { role: PAYLOAD }
+      milliseconds:  { role: PAYLOAD }
+      bytes:         { role: PAYLOAD }
+      unit_price:    { role: PAYLOAD }
+  playlist:
+    columns:
+      playlist_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:        { role: PAYLOAD }
+  playlist_track:   # composite PK (playlist_id, track_id)
+    columns:
+      playlist_id: { role: FOREIGN_KEY, references: { table: playlist, column: playlist_id } }
+      track_id:    { role: FOREIGN_KEY, references: { table: track, column: track_id } }
+  employee:   # self-referential FK reports_to + reassigned INT PK
+    columns:
+      employee_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      last_name:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      first_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      title:       { role: PAYLOAD }
+      reports_to:  { role: FOREIGN_KEY, references: { table: employee, column: employee_id } }
+      birth_date:  { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }
+      hire_date:   { role: PAYLOAD }
+      address:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
+      state:       { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      country:     { role: PAYLOAD }
+      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      phone:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      fax:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      email:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
+  customer:
+    columns:
+      customer_id:    { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      first_name:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:      { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      company:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_ORGANISATION }
+      address:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
+      state:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      country:        { role: PAYLOAD }
+      postal_code:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      phone:          { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      fax:            { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      email:          { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
+      support_rep_id: { role: FOREIGN_KEY, references: { table: employee, column: employee_id } }
+  invoice:
+    columns:
+      invoice_id:          { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      customer_id:         { role: FOREIGN_KEY, references: { table: customer, column: customer_id } }
+      invoice_date:        { role: PAYLOAD }
+      billing_address:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      billing_city:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
+      billing_state:       { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      billing_country:     { role: PAYLOAD }
+      billing_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      total:               { role: PAYLOAD }
+  invoice_line:
+    columns:
+      invoice_line_id: { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      invoice_id:      { role: FOREIGN_KEY, references: { table: invoice, column: invoice_id } }
+      track_id:        { role: FOREIGN_KEY, references: { table: track, column: track_id } }
+      unit_price:      { role: PAYLOAD }
+      quantity:        { role: PAYLOAD }

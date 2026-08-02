@@ -1,0 +1,47 @@
+# Employees anonymisation policy (was the Java builder in EmployeesBenchmarkE2ETest), loaded via
+# YamlPolicyParser. emp_no is reassigned (SEQUENTIAL_LONG) and rewritten into every child composite key.
+autoInfer: false
+tables:
+  employee:
+    columns:
+      emp_no:     { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      birth_date: { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }       # strongly-identifying DOB (§7.3 #5)
+      first_name: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      gender:     { role: PAYLOAD }
+      hire_date:  { role: PAYLOAD }
+  department:
+    columns:
+      dept_no:   { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }   # 'd001'.. non-identifying code
+      dept_name: { role: PAYLOAD }
+  dept_emp:
+    columns:
+      emp_no:    { role: FOREIGN_KEY, references: { table: employee, column: emp_no } }
+      dept_no:   { role: FOREIGN_KEY, references: { table: department, column: dept_no } }
+      from_date: { role: PAYLOAD }
+      to_date:   { role: PAYLOAD }
+  dept_manager:
+    columns:
+      emp_no:    { role: FOREIGN_KEY, references: { table: employee, column: emp_no } }
+      dept_no:   { role: FOREIGN_KEY, references: { table: department, column: dept_no } }
+      from_date: { role: PAYLOAD }
+      to_date:   { role: PAYLOAD }
+  title:   # composite PK (emp_no, title, from_date): surrogated FK + kept text + kept date
+    columns:
+      emp_no:    { role: FOREIGN_KEY, references: { table: employee, column: emp_no } }
+      title:     { role: PAYLOAD }
+      from_date: { role: PAYLOAD }
+      to_date:   { role: PAYLOAD }
+  salary:  # composite PK (emp_no, from_date): surrogated FK + kept date
+    columns:
+      emp_no:    { role: FOREIGN_KEY, references: { table: employee, column: emp_no } }
+      amount:    { role: PAYLOAD }
+      from_date: { role: PAYLOAD }
+      to_date:   { role: PAYLOAD }
+  audit:   # trigger-populated log: empty, but must still be classified (fail-closed)
+    columns:
+      id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      operation:  { role: PAYLOAD }
+      query:      { role: PAYLOAD }
+      user_name:  { role: PAYLOAD }
+      changed_at: { role: PAYLOAD }

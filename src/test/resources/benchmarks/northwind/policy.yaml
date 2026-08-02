@@ -1,0 +1,126 @@
+# Northwind anonymisation policy (was the Java builder in NorthwindBenchmarkE2ETest), loaded via
+# YamlPolicyParser. PKs are passthrough (text/surrogate); employees.reports_to is a self-referential FK.
+# company_name/contact_name/ship_name stay shape-preserving — their VARCHAR(30/40) columns are too
+# narrow for realistic full/organisation names.
+autoInfer: false
+tables:
+  categories:
+    columns:
+      category_id:   { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      category_name: { role: PAYLOAD }
+      description:   { role: PAYLOAD }
+      picture:       { role: PAYLOAD }   # bytea → passthrough audit
+  customer_demographics:
+    columns:
+      customer_type_id: { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      customer_desc:    { role: PAYLOAD }
+  customer_customer_demo:
+    columns:
+      customer_id:      { role: FOREIGN_KEY, references: { table: customers, column: customer_id } }
+      customer_type_id: { role: FOREIGN_KEY, references: { table: customer_demographics, column: customer_type_id } }
+  customers:
+    columns:
+      customer_id:   { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      company_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      contact_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      contact_title: { role: PAYLOAD }
+      address:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      region:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      country:       { role: PAYLOAD }
+      phone:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      fax:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+  employees:   # self-referential FK reports_to; photo is bytea
+    columns:
+      employee_id:       { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      last_name:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      first_name:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      title:             { role: PAYLOAD }
+      title_of_courtesy: { role: PAYLOAD }
+      birth_date:        { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }
+      hire_date:         { role: PAYLOAD }
+      address:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:              { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      region:            { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      postal_code:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      country:           { role: PAYLOAD }
+      home_phone:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      extension:         { role: PAYLOAD }
+      photo:             { role: PAYLOAD }
+      notes:             { role: PAYLOAD }
+      reports_to:        { role: FOREIGN_KEY, references: { table: employees, column: employee_id } }
+      photo_path:        { role: PAYLOAD }
+  employee_territories:
+    columns:
+      employee_id:  { role: FOREIGN_KEY, references: { table: employees, column: employee_id } }
+      territory_id: { role: FOREIGN_KEY, references: { table: territories, column: territory_id } }
+  order_details:
+    columns:
+      order_id:   { role: FOREIGN_KEY, references: { table: orders, column: order_id } }
+      product_id: { role: FOREIGN_KEY, references: { table: products, column: product_id } }
+      unit_price: { role: PAYLOAD }
+      quantity:   { role: PAYLOAD }
+      discount:   { role: PAYLOAD }
+  orders:
+    columns:
+      order_id:         { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      customer_id:      { role: FOREIGN_KEY, references: { table: customers, column: customer_id } }
+      employee_id:      { role: FOREIGN_KEY, references: { table: employees, column: employee_id } }
+      order_date:       { role: PAYLOAD }
+      required_date:    { role: PAYLOAD }
+      shipped_date:     { role: PAYLOAD }
+      ship_via:         { role: FOREIGN_KEY, references: { table: shippers, column: shipper_id } }
+      freight:          { role: PAYLOAD }
+      ship_name:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      ship_address:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      ship_city:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      ship_region:      { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      ship_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      ship_country:     { role: PAYLOAD }
+  products:
+    columns:
+      product_id:       { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      product_name:     { role: PAYLOAD }
+      supplier_id:      { role: FOREIGN_KEY, references: { table: suppliers, column: supplier_id } }
+      category_id:      { role: FOREIGN_KEY, references: { table: categories, column: category_id } }
+      quantity_per_unit: { role: PAYLOAD }
+      unit_price:       { role: PAYLOAD }
+      units_in_stock:   { role: PAYLOAD }
+      units_on_order:   { role: PAYLOAD }
+      reorder_level:    { role: PAYLOAD }
+      discontinued:     { role: PAYLOAD }
+  region:
+    columns:
+      region_id:          { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      region_description: { role: PAYLOAD }
+  shippers:
+    columns:
+      shipper_id:   { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      company_name: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      phone:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+  suppliers:
+    columns:
+      supplier_id:   { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      company_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      contact_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      contact_title: { role: PAYLOAD }
+      address:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      region:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
+      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      country:       { role: PAYLOAD }
+      phone:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      fax:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+      homepage:      { role: PAYLOAD }
+  territories:
+    columns:
+      territory_id:          { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      territory_description: { role: PAYLOAD }
+      region_id:             { role: FOREIGN_KEY, references: { table: region, column: region_id } }
+  us_states:
+    columns:
+      state_id:     { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }
+      state_name:   { role: PAYLOAD }
+      state_abbr:   { role: PAYLOAD }
+      state_region: { role: PAYLOAD }

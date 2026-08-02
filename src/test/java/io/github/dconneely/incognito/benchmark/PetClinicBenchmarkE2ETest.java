@@ -3,17 +3,12 @@ package io.github.dconneely.incognito.benchmark;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.dconneely.incognito.api.ColumnRole;
-import io.github.dconneely.incognito.api.DirectIdStrategy;
 import io.github.dconneely.incognito.api.IncognitoPipeline;
 import io.github.dconneely.incognito.api.PipelineResult;
-import io.github.dconneely.incognito.api.QuasiIdStrategy;
-import io.github.dconneely.incognito.api.SurrogateStrategy;
 import io.github.dconneely.incognito.core.SchemaDiscoveryStage;
 import io.github.dconneely.incognito.core.TableTransformLoadStage;
 import io.github.dconneely.incognito.core.VerificationStage;
 import io.github.dconneely.incognito.policy.AnonymisationPolicy;
-import io.github.dconneely.incognito.policy.ColumnPolicy;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -89,40 +84,12 @@ class PetClinicBenchmarkE2ETest {
         if (pg != null) pg.stop();
     }
 
-    private AnonymisationPolicy policy() {
-        return AnonymisationPolicy.builder()
-            .table("vets", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column("first_name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC)
-                .column("last_name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC))
-            .table("specialties", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column("name", ColumnRole.PAYLOAD))
-            .table("vet_specialties", t -> t
-                .column(ColumnPolicy.builder("vet_id").role(ColumnRole.FOREIGN_KEY).references("vets", "id").build())
-                .column(ColumnPolicy.builder("specialty_id").role(ColumnRole.FOREIGN_KEY).references("specialties", "id").build()))
-            .table("types", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column("name", ColumnRole.PAYLOAD))
-            .table("owners", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column("first_name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC)
-                .column("last_name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC)
-                .column("address", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC)
-                .column("city", ColumnRole.PAYLOAD)
-                .column("telephone", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_PHONE))
-            .table("pets", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column("name", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_GENERIC)
-                .column(ColumnPolicy.builder("birth_date").role(ColumnRole.QUASI_ID).quasiIdStrategy(QuasiIdStrategy.SYNTHESISE).build())
-                .column(ColumnPolicy.builder("type_id").role(ColumnRole.FOREIGN_KEY).references("types", "id").build())
-                .column(ColumnPolicy.builder("owner_id").role(ColumnRole.FOREIGN_KEY).references("owners", "id").build()))
-            .table("visits", t -> t
-                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
-                .column(ColumnPolicy.builder("pet_id").role(ColumnRole.FOREIGN_KEY).references("pets", "id").build())
-                .column(ColumnPolicy.builder("visit_date").role(ColumnRole.QUASI_ID).quasiIdStrategy(QuasiIdStrategy.SYNTHESISE).build())
-                .column("description", ColumnRole.PAYLOAD))
-            .build();
+    /** Loads the policy from a YAML test resource (exercises the {@code YamlPolicyParser} path E2E). */
+    private AnonymisationPolicy policy() throws Exception {
+        try (var in = PetClinicBenchmarkE2ETest.class.getResourceAsStream("/benchmarks/petclinic/policy.yaml")) {
+            if (in == null) throw new IllegalStateException("missing test resource: /benchmarks/petclinic/policy.yaml");
+            return new io.github.dconneely.incognito.policy.YamlPolicyParser().parse(in);
+        }
     }
 
     @Test

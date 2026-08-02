@@ -309,7 +309,7 @@ public interface IncognitoPipeline {
     }
 }
 
-public enum DirectIdStrategy { ALTEREGO_NAME, ALTEREGO_EMAIL, ALTEREGO_PHONE, ALTEREGO_GENERIC }
+public enum DirectIdStrategy { ALTEREGO_NAME, ALTEREGO_FIRST_NAME, ALTEREGO_LAST_NAME, ALTEREGO_ORGANISATION, ALTEREGO_CITY, ALTEREGO_STREET_ADDRESS, ALTEREGO_EMAIL, ALTEREGO_PHONE, ALTEREGO_GENERIC }
 
 public enum QuasiIdStrategy {
     SYNTHESISE,            // fresh fictional value; distribution NOT preserved
@@ -529,10 +529,15 @@ String fake = email.apply(sourceEmail);              // per row; deterministic i
 **Strategy → AlterEgo call:**
 | Incognito strategy | AlterEgo call |
 | :--- | :--- |
-| `DirectIdStrategy.ALTEREGO_NAME` | `ae.fullName()` (or `firstName()`/`lastName()`) |
+| `DirectIdStrategy.ALTEREGO_NAME` | `ae.fullName()` |
+| `ALTEREGO_FIRST_NAME` | `ae.firstName()` |
+| `ALTEREGO_LAST_NAME` | `ae.lastName()` — authored, obviously-fictional surnames (ADR 0010) |
+| `ALTEREGO_ORGANISATION` | `ae.organisationName()` |
+| `ALTEREGO_CITY` | `ae.city()` |
+| `ALTEREGO_STREET_ADDRESS` | `ae.streetAddress()` — authored, obviously-fictional streets (ADR 0010) |
 | `ALTEREGO_EMAIL` | `ae.emailAddress()` — RFC 2606 reserved domain by default |
 | `ALTEREGO_PHONE` | `ae.phoneNumber()` |
-| `ALTEREGO_GENERIC` | `ae.pattern(shape)` (format-preserving; derive `shape` from the value's `D`/`L`/`l`/`A` character classes) or `ae.mask(maskChar, keepLast)` |
+| `ALTEREGO_GENERIC` | shape-preserving fabrication (length + `D`/`L`/`l`/`A` character classes) on AlterEgo's salt-keyed stream — **code-like fields only**; the preserved shape is identifying for names/addresses, and it carries no fictionality guarantee |
 | `UNIQUE_CANDIDATE_KEY` | any of the above **`.unique()`** — e.g. `ae.pattern(shape).unique()`. Needs the mapping store. See sequence-fallback (§5.1). |
 | `QuasiIdStrategy.SYNTHESISE` | per source type — **Appendix B** |
 | `JITTER_WITHIN_MONTH` / `_YEAR` | `ae.shiftDate(AlterEgo.DateField.MONTH \| YEAR)` |

@@ -1,0 +1,42 @@
+# PetClinic anonymisation policy — the same policy the benchmark previously built in Java, expressed
+# in YAML and loaded via YamlPolicyParser, so the YAML config path is exercised end-to-end.
+autoInfer: false
+tables:
+  vets:
+    columns:
+      id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      first_name: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+  specialties:
+    columns:
+      id:   { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name: { role: PAYLOAD }
+  vet_specialties:
+    columns:
+      vet_id:       { role: FOREIGN_KEY, references: { table: vets, column: id } }
+      specialty_id: { role: FOREIGN_KEY, references: { table: specialties, column: id } }
+  types:
+    columns:
+      id:   { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name: { role: PAYLOAD }
+  owners:
+    columns:
+      id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      first_name: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_FIRST_NAME }
+      last_name:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_LAST_NAME }
+      address:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
+      city:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
+      telephone:  { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
+  pets:
+    columns:
+      id:         { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      name:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      birth_date: { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }
+      type_id:    { role: FOREIGN_KEY, references: { table: types, column: id } }
+      owner_id:   { role: FOREIGN_KEY, references: { table: owners, column: id } }
+  visits:
+    columns:
+      id:          { role: PRIMARY_KEY, surrogateStrategy: SEQUENTIAL_LONG }
+      pet_id:      { role: FOREIGN_KEY, references: { table: pets, column: id } }
+      visit_date:  { role: QUASI_ID,    quasiIdStrategy: SYNTHESISE }
+      description: { role: PAYLOAD }

@@ -458,6 +458,11 @@ public final class TableTransformLoadStage implements PipelineStage {
 
         Transformation<String> transformation = switch (strategy) {
             case ALTEREGO_NAME -> alterEgo.fullName();
+            case ALTEREGO_FIRST_NAME -> alterEgo.firstName();
+            case ALTEREGO_LAST_NAME -> alterEgo.lastName();
+            case ALTEREGO_ORGANISATION -> alterEgo.organisationName();
+            case ALTEREGO_CITY -> alterEgo.city();
+            case ALTEREGO_STREET_ADDRESS -> alterEgo.streetAddress();
             case ALTEREGO_EMAIL -> alterEgo.emailAddress();
             case ALTEREGO_PHONE -> alterEgo.phoneNumber();
             case ALTEREGO_GENERIC -> alterEgo.bind(domain, (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
