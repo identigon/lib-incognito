@@ -34,7 +34,27 @@ public final class DpiaArtifactEmitter {
      */
     public static void emitJson(AnonymisationReport report, Path outputPath) throws IncognitoException {
         try (Writer w = Files.newBufferedWriter(outputPath)) {
-            w.write("{\n  \"stages\": [\n");
+            w.write("{\n  \"saltMode\": "
+                + jsonStr(report.saltMode() == null ? null : report.saltMode().name()) + ",\n");
+
+            w.write("  \"survivalFindings\": [");
+            for (int s = 0; s < report.survivalFindings().size(); s++) {
+                AnonymisationReport.SurvivalFinding sf = report.survivalFindings().get(s);
+                w.write((s == 0 ? "" : ", ") + "{\"table\": " + jsonStr(sf.table())
+                    + ", \"column\": " + jsonStr(sf.column())
+                    + ", \"sampledDistinct\": " + sf.sampledDistinct()
+                    + ", \"survived\": " + sf.survived()
+                    + ", \"hardFailure\": " + sf.hardFailure() + "}");
+            }
+            w.write("],\n  \"lintFindings\": [");
+            for (int l = 0; l < report.lintFindings().size(); l++) {
+                AnonymisationReport.LintFinding lf = report.lintFindings().get(l);
+                w.write((l == 0 ? "" : ", ") + "{\"table\": " + jsonStr(lf.table())
+                    + ", \"column\": " + jsonStr(lf.column())
+                    + ", \"distinctValues\": " + lf.distinctValues()
+                    + ", \"threshold\": " + lf.threshold() + "}");
+            }
+            w.write("],\n  \"stages\": [\n");
             for (int i = 0; i < report.stageResults().size(); i++) {
                 PipelineStage.StageResult sr = report.stageResults().get(i);
                 w.write("    {\"stage\": " + jsonStr(sr.stageName())
@@ -89,6 +109,37 @@ public final class DpiaArtifactEmitter {
                 + "th{background:#f2f2f2}.fail{color:#b00}.ok{color:#080}"
                 + "caption{font-weight:bold;text-align:left;padding:.3rem 0}</style>\n");
             w.write("</head><body>\n<h1>Incognito Anonymisation Report (DPIA Artifact)</h1>\n");
+
+            w.write("<p><b>Salt mode:</b> <code>"
+                + htmlEscape(report.saltMode() == null ? "unknown" : report.saltMode().name())
+                + "</code> &mdash; " + saltModeNote(report.saltMode()) + "</p>\n");
+
+            w.write("<h2>Residual re-identification risk</h2>\n");
+            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()) {
+                w.write("<p class=\"ok\">No source-value survival or misdeclaration findings.</p>\n");
+            }
+            if (!report.survivalFindings().isEmpty()) {
+                w.write("<table><caption>Source-value survival (SPEC &sect;4.3 &mdash; singling-out evidence)"
+                    + "</caption><tr><th>Table</th><th>Column</th><th>Sampled</th><th>Survived</th>"
+                    + "<th>Verdict</th></tr>\n");
+                for (AnonymisationReport.SurvivalFinding sf : report.survivalFindings()) {
+                    w.write("<tr><td>" + htmlEscape(sf.table()) + "</td><td>" + htmlEscape(sf.column())
+                        + "</td><td>" + sf.sampledDistinct() + "</td><td>" + sf.survived()
+                        + "</td><td class=\"" + (sf.hardFailure() ? "fail\">LEAK" : "ok\">coincidental")
+                        + "</td></tr>\n");
+                }
+                w.write("</table>\n");
+            }
+            if (!report.lintFindings().isEmpty()) {
+                w.write("<table><caption>Misdeclaration lint (SPEC &sect;4.1 &mdash; distinguishing:false"
+                    + " kept opaque)</caption><tr><th>Table</th><th>Column</th><th>Distinct values</th>"
+                    + "<th>Threshold</th></tr>\n");
+                for (AnonymisationReport.LintFinding lf : report.lintFindings()) {
+                    w.write("<tr><td>" + htmlEscape(lf.table()) + "</td><td>" + htmlEscape(lf.column())
+                        + "</td><td>" + lf.distinctValues() + "</td><td>" + lf.threshold() + "</td></tr>\n");
+                }
+                w.write("</table>\n");
+            }
 
             w.write("<h2>Pipeline stages</h2>\n<table><tr><th>Stage</th><th>Result</th>"
                 + "<th>Processed</th><th>Message</th></tr>\n");
@@ -153,6 +204,20 @@ public final class DpiaArtifactEmitter {
     }
 
     /**
+     * A one-line plain-language gloss of a salt mode's anonymity implication (SPEC §5.1/§5.2), for
+     * the DPIA reader who should not have to know the API to understand the run's re-identification
+     * posture. Contains no markup, so it is safe in both HTML and Markdown output.
+     */
+    private static String saltModeNote(org.identigon.incognito.api.SaltMode mode) {
+        if (mode == null) return "salt mode not recorded";
+        return switch (mode) {
+            case EPHEMERAL -> "fresh per-run salt, destroyed on completion; output unlinkable and irreversible";
+            case PERSISTENT -> "fixed reused salt; output is linkable across runs and forfeits irreversibility (SPEC §5.2)";
+            case REPRODUCIBLE -> "fixed salt + seed for reproducible fixtures; linkable and not for production clones (SPEC §5.2)";
+        };
+    }
+
+    /**
      * Emits the report as a Markdown file.
      * @param report the anonymisation report to emit
      * @param outputPath the path where the Markdown file will be written
@@ -161,6 +226,36 @@ public final class DpiaArtifactEmitter {
     public static void emitMarkdown(AnonymisationReport report, Path outputPath) throws IncognitoException {
         try (Writer writer = Files.newBufferedWriter(outputPath)) {
             writer.write("# Incognito Anonymisation Report (DPIA Artifact)\n\n");
+
+            writer.write(String.format("**Salt mode:** `%s` — %s%n%n",
+                report.saltMode() == null ? "unknown" : report.saltMode().name(),
+                saltModeNote(report.saltMode())));
+
+            writer.write("## Residual Re-identification Risk\n\n");
+            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()) {
+                writer.write("No source-value survival or misdeclaration findings.\n\n");
+            }
+            if (!report.survivalFindings().isEmpty()) {
+                writer.write("### Source-Value Survival (SPEC §4.3 — singling-out evidence)\n\n");
+                writer.write("| Table | Column | Sampled | Survived | Verdict |\n");
+                writer.write("|---|---|---|---|---|\n");
+                for (AnonymisationReport.SurvivalFinding sf : report.survivalFindings()) {
+                    writer.write(String.format("| %s | %s | %d | %d | %s |%n",
+                        sf.table(), sf.column(), sf.sampledDistinct(), sf.survived(),
+                        sf.hardFailure() ? "LEAK" : "coincidental"));
+                }
+                writer.write("\n");
+            }
+            if (!report.lintFindings().isEmpty()) {
+                writer.write("### Misdeclaration Lint (SPEC §4.1 — distinguishing:false kept opaque)\n\n");
+                writer.write("| Table | Column | Distinct Values | Threshold |\n");
+                writer.write("|---|---|---|---|\n");
+                for (AnonymisationReport.LintFinding lf : report.lintFindings()) {
+                    writer.write(String.format("| %s | %s | %d | %d |%n",
+                        lf.table(), lf.column(), lf.distinctValues(), lf.threshold()));
+                }
+                writer.write("\n");
+            }
 
             writer.write("## Pipeline Stages Summary\n\n");
             for (PipelineStage.StageResult sr : report.stageResults()) {

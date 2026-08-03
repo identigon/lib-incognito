@@ -110,6 +110,10 @@ public final class VerificationStage implements PipelineStage {
         AnonymisationPolicy policy = context.policy();
         List<String> failures = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        // Structured, queryable residual-risk evidence for the DPIA report (SPEC §4.1/§4.3), captured
+        // alongside the human-readable prose that lands in this stage's result message.
+        List<org.identigon.incognito.api.AnonymisationReport.SurvivalFinding> survivalFindings = new ArrayList<>();
+        List<org.identigon.incognito.api.AnonymisationReport.LintFinding> lintFindings = new ArrayList<>();
         // Tables that contributed at least one hard failure — the complement (in-policy, no failure)
         // are reported as fictionality-verified in the DPIA report.
         java.util.Set<String> failedTables = new java.util.HashSet<>();
@@ -196,6 +200,9 @@ public final class VerificationStage implements PipelineStage {
                             sourceConn, tableName, colPolicy.columnName(), threshold);
 
                         if (distinctCount > threshold) {
+                            lintFindings.add(new org.identigon.incognito.api.AnonymisationReport.LintFinding(
+                                tableName, colPolicy.columnName(), distinctCount, threshold));
+
                             String msg = "Misdeclaration lint: " + tableName + "." + colPolicy.columnName()
                                 + " is declared distinguishing: false but has " + distinctCount
                                 + " distinct values (threshold: " + threshold + ")."
@@ -300,7 +307,8 @@ public final class VerificationStage implements PipelineStage {
                             || strategy == DirectIdStrategy.ALTEREGO_URL) continue;
 
                     String colName = colPolicy.columnName();
-                    verifySurvival(sourceConn, targetConn3, tableName, colName, failures, warnings, failedTables);
+                    verifySurvival(sourceConn, targetConn3, tableName, colName,
+                        failures, warnings, failedTables, survivalFindings);
                 }
             }
         } catch (SQLException e) {
@@ -317,6 +325,8 @@ public final class VerificationStage implements PipelineStage {
             }
         }
         context.attributes().put("incognito.verification.verifiedTables", verifiedTables);
+        context.attributes().put(AnonymisationReportBuilder.ATTR_SURVIVAL_FINDINGS, survivalFindings);
+        context.attributes().put(AnonymisationReportBuilder.ATTR_LINT_FINDINGS, lintFindings);
 
         // Build the result message.
         if (!failures.isEmpty()) {
@@ -490,7 +500,9 @@ public final class VerificationStage implements PipelineStage {
     private void verifySurvival(
             Connection sourceConn, Connection targetConn, String tableName,
             String columnName, List<String> failures, List<String> warnings,
-            java.util.Set<String> failedTables) throws SQLException {
+            java.util.Set<String> failedTables,
+            List<org.identigon.incognito.api.AnonymisationReport.SurvivalFinding> survivalFindings)
+            throws SQLException {
         // Collect non-null distinct source values (bounded to a reasonable sample for large tables).
         List<String> sourceValues = new ArrayList<>();
         try (Statement stmt = sourceConn.createStatement();
@@ -518,7 +530,10 @@ public final class VerificationStage implements PipelineStage {
                 long survived = rs.getLong(1);
                 if (survived == 0) return;
                 double ratio = (double) survived / sourceValues.size();
-                if (ratio >= SURVIVAL_FAILURE_RATIO) {
+                boolean hardFailure = ratio >= SURVIVAL_FAILURE_RATIO;
+                survivalFindings.add(new org.identigon.incognito.api.AnonymisationReport.SurvivalFinding(
+                    tableName, columnName, sourceValues.size(), survived, hardFailure));
+                if (hardFailure) {
                     failures.add("Source-value survival: " + tableName + "." + columnName
                         + " has " + survived + " of " + sourceValues.size()
                         + " sampled distinct source values surviving in the target ("

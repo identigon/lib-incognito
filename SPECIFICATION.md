@@ -183,8 +183,11 @@ The heart of Incognito is a **per-column transformation dial**, all of it backed
 **The gate is the declaration, not a probe.** Because keep-vs-fabricate is now **declared** by the policy author, the privacy decision no longer reads any source *value* — Incognito acts purely on the `distinguishing` flag and the presence of a strategy, both checked at config time before a row is touched (fail-closed). This removes the last dataset-level value probe from the privacy path.
 
 **Misdeclaration lint (on by default; still not the gate).** As a safety net against a `distinguishing: false` label on a field that is really free-text, `VerificationStage` **runs by default** an exact `SELECT COUNT(DISTINCT col)` on every `distinguishing: false` column and acts when the true count exceeds `maxCategoricalCardinality` (default 64). Its behaviour is set by `distinguishingLint`:
-- **`WARN`** (default) — **record a warning in the report** and continue.
+- **`WARN`** (default) — **record a warning in the report** and continue. Each flagged column is
+  also captured as a structured `AnonymisationReport.LintFinding` (table, column, distinct count,
+  threshold) so a reviewer can query the misdeclaration candidates, not only read the prose.
 - **`ERROR`** — fail the run with `IncognitoException.ConstraintException` (belt-and-braces / CI gate).
+  The run aborts before a report is built, so `LintFinding`s appear only in `WARN` mode.
 - **`OFF`** — skip the check entirely (e.g. very large tables where a per-column scan is too costly).
 
 It is still **not** the privacy decision: a run does not keep a value real *because* of a statistic, only because the author declared it non-distinguishing — the lint merely flags a declaration that looks mistaken. (PostgreSQL `pg_stats.n_distinct` may be consulted first as a cheap pre-filter, falling back to the exact count near the threshold.)
@@ -211,7 +214,13 @@ The `QuasiIdStrategy` value selects the *mode*; its **parameters are not enum va
 - Domains and URLs from the same RFC 2606 reserved set/TLDs (`example.com`, `*.test`, `*.invalid`,
   …) — never a live, resolvable, or registrable name.
 
-`VerificationStage` asserts these on the target, skipping `NULL` cells during verification.
+`VerificationStage` asserts these on the target, skipping `NULL` cells during verification. It also
+runs a **source-value survival** net over every non-reserved `DIRECT_ID` column: any real source
+value that reappears in the target is captured as a structured `AnonymisationReport.SurvivalFinding`
+(sampled distinct count, survived count, and a `hardFailure` verdict). A high survival ratio is an
+un-fabricated passthrough that fails the run; a handful of coincidental shape-preserving collisions
+on a low-entropy value is recorded but passes — quantified singling-out evidence (Art. 29 WP
+05/2014) for the DPIA, not just a log line.
 
 ### 4.4 Determinism & referential consistency
 
@@ -230,7 +239,10 @@ By default **no rows are dropped** — overall volume is preserved exactly (Goal
 `AlterEgo` derives every fabricated value from `key = HMAC-SHA256(salt, purpose‖0x00‖domain‖0x00‖canonical‖0x00‖counter)`. Incognito generates the salt (`SecureRandom`, ≥128-bit) internally and constructs `AlterEgo` with `rawMappingKeys = false`.
 
 **Handling rules:**
-- Salt MUST NOT be logged, written to disk, or included in reports.
+- Salt MUST NOT be logged, written to disk, or included in reports. The report discloses only the
+  salt *mode* (`AnonymisationReport.saltMode`) — never the salt bytes — so a reviewer can weigh the
+  run's anonymity claim (a `PERSISTENT`/`REPRODUCIBLE` run forfeits irreversibility, §5.2) under the
+  Recital 26 "means reasonably likely to be used" test.
 - On completion Incognito zeroes its salt copy and releases the `AlterEgo` instance.
 - The salt modes `ephemeralSalt()` (default), `persistentSalt(byte[])`, and `reproducible(byte[], long)` are mutually exclusive; setting more than one is an `IncognitoException.ConfigException` (enforced by the builder).
 - **High-cardinality `UNIQUE_CANDIDATE_KEY` sequence fallback.** When `AlterEgo.unique()`'s fictional dictionary would be exhausted (more distinct values than the vocabulary can supply), Incognito derives a unique value from a running sequence instead of throwing `AlterEgoCollisionException`. **Caveat (Goal 1):** the fallback must respect the column's type/format — a naively appended `Value_NNNNNN` string would violate a numeric column, a fixed-width/format `CHECK`, or a length limit. So the scheme is **length-preserving and type-aware**: a bare numeric sequence for numeric columns, and for strings a zero-padded sequence *overlaid on the fabricated value's tail* so the original length is preserved exactly (never widened). A format-preserving pattern honouring an arbitrary `CHECK` is the fuller target (part of the deferred lib-alterego delegation, §1.4); a column whose format still cannot be satisfied is reported, not silently loaded with an invalid value.
@@ -406,8 +418,13 @@ public record PipelineResult(
     AnonymisationReport report
 ) {}
 
+public enum SaltMode { EPHEMERAL, PERSISTENT, REPRODUCIBLE }  // how the run was keyed (§5.1/§5.2)
+
 public record AnonymisationReport(
+    SaltMode saltMode,                                   // Recital-26 anonymity-strength disclosure
     java.util.List<TableReport> tables,
+    java.util.List<SurvivalFinding> survivalFindings,    // §4.3 singling-out evidence (quantified)
+    java.util.List<LintFinding> lintFindings,            // §4.1 misdeclaration candidates (WARN)
     java.util.List<PipelineStage.StageResult> stageResults
 ) {
     public record TableReport(
@@ -421,6 +438,9 @@ public record AnonymisationReport(
     public record ColumnAction(String column, ColumnRole role, String transformation) {}
     public record PassthroughFlag(String column, String jdbcType, String reason) {}
     public record InferSuggestion(String column, ColumnRole suggestedRole, String matchedHeuristic) {}
+    public record SurvivalFinding(
+        String table, String column, long sampledDistinct, long survived, boolean hardFailure) {}
+    public record LintFinding(String table, String column, long distinctValues, int threshold) {}
 }
 
 public interface KeyTranslationStore extends AutoCloseable {

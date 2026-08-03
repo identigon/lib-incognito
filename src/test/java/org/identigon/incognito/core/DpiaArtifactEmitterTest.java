@@ -9,6 +9,7 @@ import java.util.List;
 import org.identigon.incognito.api.AnonymisationReport;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.PipelineStage;
+import org.identigon.incognito.api.SaltMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,10 +27,15 @@ class DpiaArtifactEmitterTest {
                 "untransformed potentially-identifying type kept as-is (SPEC §7.2)"));
         var table = new AnonymisationReport.TableReport(
             "customers", columns, 42L, passthrough, List.of(), true);
+        var survival = List.of(
+            new AnonymisationReport.SurvivalFinding("customers", "email", 100L, 3L, false));
+        var lint = List.of(
+            new AnonymisationReport.LintFinding("customers", "city", 5000L, 50));
         var stages = List.of(
             new PipelineStage.StageResult("TableTransformLoadStage", true, 42, "loaded 42 rows"),
             new PipelineStage.StageResult("VerificationStage", false, 1, "Verification FAILED: dangling FK"));
-        return new AnonymisationReport(List.of(table), stages);
+        return new AnonymisationReport(
+            SaltMode.EPHEMERAL, List.of(table), survival, lint, stages);
     }
 
     @Test
@@ -44,6 +50,11 @@ class DpiaArtifactEmitterTest {
         assertTrue(json.contains("\"success\": false"), "failed stage recorded");
         // Quotes in a value are escaped, not left raw.
         assertTrue(json.contains("say \\\"hi\\\""), "special characters JSON-escaped");
+        assertTrue(json.contains("\"saltMode\": \"EPHEMERAL\""), "salt mode disclosed");
+        assertTrue(json.contains("\"survivalFindings\""), "survival findings section present");
+        assertTrue(json.contains("\"hardFailure\": false"), "survival verdict recorded");
+        assertTrue(json.contains("\"lintFindings\""), "lint findings section present");
+        assertTrue(json.contains("\"distinctValues\": 5000"), "lint distinct count recorded");
         assertEquals(count(json, '{'), count(json, '}'), "braces balanced");
     }
 
@@ -59,6 +70,10 @@ class DpiaArtifactEmitterTest {
         // Angle brackets / ampersands in a value are escaped.
         assertTrue(html.contains("&lt;b&gt; &amp; go"), "special characters HTML-escaped");
         assertTrue(html.contains("Passthrough flags"), "passthrough section rendered");
+        assertTrue(html.contains("Salt mode:"), "salt mode disclosed");
+        assertTrue(html.contains("EPHEMERAL"), "salt mode value rendered");
+        assertTrue(html.contains("Source-value survival"), "survival section rendered");
+        assertTrue(html.contains("Misdeclaration lint"), "lint section rendered");
     }
 
     @Test
@@ -70,6 +85,9 @@ class DpiaArtifactEmitterTest {
         assertTrue(md.contains("# Incognito Anonymisation Report"), "has a title");
         assertTrue(md.contains("customers"), "table name present");
         assertTrue(md.contains("ALTEREGO_EMAIL"), "column action present");
+        assertTrue(md.contains("**Salt mode:**"), "salt mode disclosed");
+        assertTrue(md.contains("Source-Value Survival"), "survival section rendered");
+        assertTrue(md.contains("Misdeclaration Lint"), "lint section rendered");
     }
 
     private static long count(String s, char c) {

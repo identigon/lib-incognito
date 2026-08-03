@@ -13,8 +13,6 @@ import org.identigon.incognito.policy.AnonymisationPolicy;
  */
 final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
 
-    private enum SaltMode { EPHEMERAL, PERSISTENT, REPRODUCIBLE }
-
     private DataSource source;
     private DataSource target;
     private Locale locale = Locale.UK;
@@ -131,6 +129,12 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
             alterEgo, policy,
             new java.util.concurrent.ConcurrentHashMap<>()
         );
+
+        // Disclose how this run was keyed so the DPIA report can state the anonymity claim's strength
+        // (SPEC §5.1/§5.2) — a PERSISTENT/REPRODUCIBLE run forfeits irreversibility and a reviewer
+        // must see that, not infer it.
+        context.attributes().put(
+            org.identigon.incognito.core.AnonymisationReportBuilder.ATTR_SALT_MODE, resolvedSaltMode);
 
         // If the caller supplied no stages, assemble the standard v1.0 pipeline so the
         // documented `builder()...build().execute()` form actually anonymises.

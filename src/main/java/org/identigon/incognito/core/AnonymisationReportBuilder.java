@@ -22,6 +22,15 @@ public final class AnonymisationReportBuilder {
 
     private AnonymisationReportBuilder() {}
 
+    /** Context attribute key: the {@link org.identigon.incognito.api.SaltMode} the run was keyed with. */
+    public static final String ATTR_SALT_MODE = "incognito.saltMode";
+
+    /** Context attribute key: the list of {@link AnonymisationReport.SurvivalFinding} from verification. */
+    public static final String ATTR_SURVIVAL_FINDINGS = "incognito.verification.survivalFindings";
+
+    /** Context attribute key: the list of {@link AnonymisationReport.LintFinding} from verification. */
+    public static final String ATTR_LINT_FINDINGS = "incognito.verification.lintFindings";
+
     /**
      * Builds the anonymisation report from the run's context and stage results.
      *
@@ -37,8 +46,18 @@ public final class AnonymisationReportBuilder {
         Object rowsObj = context.attributes().get("incognito.metrics.rowsPerTable");
         Object verifiedTablesObj = context.attributes().get("incognito.verification.verifiedTables"); // Optional
 
+        org.identigon.incognito.api.SaltMode saltMode =
+            (org.identigon.incognito.api.SaltMode) context.attributes().get(ATTR_SALT_MODE);
+        List<AnonymisationReport.SurvivalFinding> survivalFindings =
+            (List<AnonymisationReport.SurvivalFinding>) context.attributes().getOrDefault(
+                ATTR_SURVIVAL_FINDINGS, Collections.emptyList());
+        List<AnonymisationReport.LintFinding> lintFindings =
+            (List<AnonymisationReport.LintFinding>) context.attributes().getOrDefault(
+                ATTR_LINT_FINDINGS, Collections.emptyList());
+
         if (planObj == null || metaObj == null) {
-            return new AnonymisationReport(Collections.emptyList(), stageResults);
+            return new AnonymisationReport(
+                saltMode, Collections.emptyList(), survivalFindings, lintFindings, stageResults);
         }
 
         TableDependencyGraph.TopologicalExecutionPlan plan = (TableDependencyGraph.TopologicalExecutionPlan) planObj;
@@ -128,7 +147,8 @@ public final class AnonymisationReportBuilder {
             ));
         }
 
-        return new AnonymisationReport(tableReports, stageResults);
+        return new AnonymisationReport(
+            saltMode, tableReports, survivalFindings, lintFindings, stageResults);
     }
 
     /**

@@ -1,5 +1,6 @@
 package org.identigon.incognito.benchmark;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -149,6 +150,9 @@ final class BenchmarkSupport {
         assertTrue(Files.size(jsonReport) > 0, "DPIA JSON report must be written");
         assertTrue(Files.size(htmlReport) > 0, "DPIA HTML report must be written");
         assertTrue(Files.size(mdReport) > 0, "DPIA Markdown report must be written");
+        // A run through the builder must disclose how it was keyed (SPEC §5.1) — proves the
+        // salt-mode attribute is wired from the builder through to the report end-to-end.
+        assertNotNull(report.saltMode(), "DPIA report must disclose the salt mode");
     }
 
     private record SimpleDataSource(String url, String user, String password) implements DataSource {

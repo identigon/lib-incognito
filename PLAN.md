@@ -221,5 +221,13 @@ Kept in step with the sibling repos (`../play-bazlang`, `../lib-alterego`); deli
 
 Out of the locked v1.0 scope; recorded so the intent isn't lost, not committed to.
 
+- [ ] **Structural-uniqueness report (DPIA evidence).** SPEC §2.4 names the one residual risk v1.0
+  does not mitigate: row counts and the FK graph are preserved 1:1, so a subject with a distinctive
+  relational fingerprint (e.g. the one entity with 300 linked children) can still be singled out from
+  *structure* even with every field fabricated — and any real value kept on that row is then
+  disclosed. The DPIA artifact should quantify this residual: a per-table structural-uniqueness
+  finding (how many rows have a rare/unique in-degree or child-count fingerprint), so a reviewer sees
+  the exposure instead of having to reason about it unaided. This complements the salt-mode disclosure
+  and the survival/lint findings already emitted (§4.1/§4.3). Design: `docs/tasks/structural-uniqueness.md`.
 - [ ] **Declarative-partitioning support.** Surfaced by the Pagila benchmark, which excludes the partitioned `payment` table. Today partition children are discovered as plain tables and the partitioned parent isn't specially handled, so a partitioned table can't be cloned coherently. A proper treatment would recognise the parent/child relationship (`pg_partitioned_table`/`pg_inherits`), clone by inserting into the parent (letting Postgres route to partitions), and skip the children — preserving per-partition volumes. Non-partitioned tables are unaffected.
 - [ ] **`RedisKeyTranslationStore` — a persisted, out-of-process key store.** v1.0 uses an in-memory `KeyTranslationStore` only (Redis is an explicit v1.0 non-goal). A persisted store would let key translation outlive a single JVM run — useful for very large clones that don't fit in heap, for resuming an interrupted load, and for cross-run stability of surrogates. **Constraint:** a persisted key store maps source PKs to surrogates and so is itself sensitive — it must be destroyed on successful completion (SPEC §5.3), exactly as the salt is. (A `redis:7-alpine` dev `docker-compose.yml` was removed once v1.0 shipped without it; reinstate a local service definition alongside this work if picked up.)
