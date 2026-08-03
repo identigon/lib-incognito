@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Set;
+import org.identigon.incognito.TestPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,7 +43,7 @@ class PostgresDialectHandlerFkQuotingE2ETest {
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping dialect-handler E2E");
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("fk_quoting").withUsername("test").withPassword("test");
         pg.start();
 

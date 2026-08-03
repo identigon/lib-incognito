@@ -1,25 +1,28 @@
 package org.identigon.incognito.benchmark;
 
+import static org.identigon.incognito.benchmark.BenchmarkSupport.assumeDockerAvailable;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.createTargetDatabase;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.dataSource;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.emitAndVerifyDpiaReport;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.execute;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.loadPolicy;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.resource;
+import static org.identigon.incognito.benchmark.BenchmarkSupport.scalar;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 import java.util.Set;
 import javax.sql.DataSource;
+import org.identigon.incognito.TestPostgres;
 import org.identigon.incognito.api.IncognitoPipeline;
 import org.identigon.incognito.api.PipelineResult;
 import org.identigon.incognito.api.SurrogateStrategy;
 import org.identigon.incognito.core.SchemaDiscoveryStage;
 import org.identigon.incognito.core.TableTransformLoadStage;
 import org.identigon.incognito.core.VerificationStage;
-import org.identigon.incognito.policy.AnonymisationPolicy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,13 +57,7 @@ class EmployeesBenchmarkE2ETest {
 
     @BeforeAll
     void setUp() throws Exception {
-        boolean dockerAvailable;
-        try {
-            dockerAvailable = org.testcontainers.DockerClientFactory.instance().isDockerAvailable();
-        } catch (Exception e) {
-            dockerAvailable = false;
-        }
-        Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping employees benchmark");
+        assumeDockerAvailable("employees");
 
         String full = resource("/benchmarks/employees/employees.sql");
         // The fixture is schema (DDL, incl. views/trigger/RLS) then an inlined DATA section. The
@@ -69,28 +66,15 @@ class EmployeesBenchmarkE2ETest {
         int dataStart = full.indexOf("---- DATA (inlined");
         String schemaOnly = dataStart < 0 ? full : full.substring(0, full.lastIndexOf('\n', dataStart));
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("employees_source").withUsername("test").withPassword("test");
         pg.start();
 
-        try (Connection conn = DriverManager.getConnection(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword())) {
-            conn.setAutoCommit(true);
-            try (Statement stmt = conn.createStatement()) { stmt.execute(full); }
-        }
+        sourceDs = dataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+        execute(sourceDs, full);
 
-        String jdbcBase = "jdbc:postgresql://" + pg.getHost() + ":" + pg.getFirstMappedPort() + "/";
-        try (Connection admin = DriverManager.getConnection(jdbcBase + "postgres", pg.getUsername(), pg.getPassword())) {
-            admin.setAutoCommit(true);
-            try (Statement stmt = admin.createStatement()) { stmt.execute("CREATE DATABASE employees_target"); }
-        }
-        String targetUrl = jdbcBase + "employees_target";
-        try (Connection conn = DriverManager.getConnection(targetUrl, pg.getUsername(), pg.getPassword())) {
-            conn.setAutoCommit(true);
-            try (Statement stmt = conn.createStatement()) { stmt.execute(schemaOnly); }
-        }
-
-        sourceDs = new SimpleDataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
-        targetDs = new SimpleDataSource(targetUrl, pg.getUsername(), pg.getPassword());
+        targetDs = createTargetDatabase(pg, "employees_target");
+        execute(targetDs, schemaOnly);
     }
 
     @AfterAll
@@ -98,26 +82,19 @@ class EmployeesBenchmarkE2ETest {
         if (pg != null) pg.stop();
     }
 
-
-    /** Loads the policy from a YAML test resource (exercises the {@code YamlPolicyParser} path E2E). */
-    private AnonymisationPolicy policy() throws Exception {
-        try (var in = EmployeesBenchmarkE2ETest.class.getResourceAsStream("/benchmarks/employees/policy.yaml")) {
-            if (in == null) throw new IllegalStateException("missing test resource: /benchmarks/employees/policy.yaml");
-            return new org.identigon.incognito.policy.YamlPolicyParser().parse(in);
-        }
-    }
-
     @Test
     void employeesClonesCoherently() throws Exception {
         Assumptions.assumeTrue(sourceDs != null, "Docker/PostgreSQL not available");
 
         PipelineResult result = IncognitoPipeline.builder()
-            .source(sourceDs).target(targetDs).ephemeralSalt().policy(policy())
+            .source(sourceDs).target(targetDs).ephemeralSalt().policy(loadPolicy("/benchmarks/employees/policy.yaml"))
             .stage(new SchemaDiscoveryStage())
             .stage(new TableTransformLoadStage())
             .stage(new VerificationStage())
             .build().execute();
         assertTrue(result.success(), "employees should clone successfully");
+
+        emitAndVerifyDpiaReport(result.report(), "employees");
 
         try (Connection src = sourceDs.getConnection(); Connection tgt = targetDs.getConnection()) {
             // Row volumes preserved for every base table.
@@ -172,31 +149,5 @@ class EmployeesBenchmarkE2ETest {
             assertTrue(scalar(tgt, "SELECT COUNT(*) FROM current_dept_emp") > 0,
                 "current_dept_emp view resolves over the clone");
         }
-    }
-
-    private long scalar(Connection conn, String sql) throws SQLException {
-        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
-            rs.next();
-            return rs.getLong(1);
-        }
-    }
-
-    private static String resource(String path) throws Exception {
-        try (var in = EmployeesBenchmarkE2ETest.class.getResourceAsStream(path)) {
-            if (in == null) throw new IllegalStateException("missing test resource: " + path);
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private record SimpleDataSource(String url, String user, String password) implements DataSource {
-        @Override public Connection getConnection() throws SQLException { return DriverManager.getConnection(url, user, password); }
-        @Override public Connection getConnection(String u, String p) throws SQLException { return DriverManager.getConnection(url, u, p); }
-        @Override public java.io.PrintWriter getLogWriter() { return null; }
-        @Override public void setLogWriter(java.io.PrintWriter out) {}
-        @Override public int getLoginTimeout() { return 0; }
-        @Override public void setLoginTimeout(int seconds) {}
-        @Override public java.util.logging.Logger getParentLogger() { return java.util.logging.Logger.getGlobal(); }
-        @Override public <T> T unwrap(Class<T> iface) throws SQLException { throw new SQLException("Not a wrapper"); }
-        @Override public boolean isWrapperFor(Class<?> iface) { return false; }
     }
 }

@@ -8,6 +8,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import org.identigon.incognito.TestPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -43,7 +44,7 @@ class PostgresDialectHandlerPreLoadFailureChainingE2ETest {
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping dialect-handler E2E");
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("preload_chaining").withUsername("test").withPassword("test");
         pg.start();
 

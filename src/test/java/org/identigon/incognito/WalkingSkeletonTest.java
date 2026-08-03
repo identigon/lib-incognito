@@ -57,7 +57,7 @@ class WalkingSkeletonTest {
             "Docker is not available — skipping Testcontainers integration tests");
 
         try {
-            pg = new PostgreSQLContainer("postgres:16-alpine")
+            pg = new PostgreSQLContainer(TestPostgres.IMAGE)
                 .withDatabaseName("incognito_source")
                 .withUsername("test")
                 .withPassword("test");

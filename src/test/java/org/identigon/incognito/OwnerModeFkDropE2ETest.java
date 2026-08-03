@@ -58,7 +58,7 @@ class OwnerModeFkDropE2ETest {
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping owner-mode FK-drop E2E");
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("owner_source").withUsername("test").withPassword("test");
         pg.start();
 

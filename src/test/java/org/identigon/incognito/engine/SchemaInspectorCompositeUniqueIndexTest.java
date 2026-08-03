@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import javax.sql.DataSource;
+import org.identigon.incognito.TestPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,7 +41,7 @@ class SchemaInspectorCompositeUniqueIndexTest {
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping schema-inspector E2E");
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("composite_unique").withUsername("test").withPassword("test");
         pg.start();
 

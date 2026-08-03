@@ -62,7 +62,7 @@ class JitterDaysVolumeE2ETest {
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping Testcontainers E2E");
 
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("jd_source").withUsername("test").withPassword("test");
         pg.start();
 

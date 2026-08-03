@@ -75,7 +75,7 @@ class DiamondE2ETest {
             dockerAvailable = false;
         }
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping Testcontainers E2E");
-        pg = new PostgreSQLContainer("postgres:16-alpine")
+        pg = new PostgreSQLContainer(TestPostgres.IMAGE)
             .withDatabaseName("diamond").withUsername("test").withPassword("test");
         pg.start();
         jdbcBase = "jdbc:postgresql://" + pg.getHost() + ":" + pg.getFirstMappedPort() + "/";

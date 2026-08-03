@@ -7,6 +7,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import javax.sql.DataSource;
+import org.identigon.incognito.TestPostgres;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.DistinguishingLint;
@@ -55,7 +56,7 @@ class DistinguishingLintTest {
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping lint E2E tests");
 
         try {
-            pg = new PostgreSQLContainer("postgres:16-alpine")
+            pg = new PostgreSQLContainer(TestPostgres.IMAGE)
                 .withDatabaseName("lint_source").withUsername("test").withPassword("test");
             pg.start();
 

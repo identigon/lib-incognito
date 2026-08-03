@@ -16,7 +16,7 @@ Source: https://github.com/spring-projects/spring-petclinic
 
 --------------------------------------------------------------------------------
 
-Pagila  (pagila/schema.sql; data fetched separately — see SOURCES.md)
+Pagila  (pagila/schema.sql, pagila/pagila-insert-data.sql)
 
 The Pagila database is made available under the PostgreSQL License (LICENCES/PostgreSQL-License.txt).
 Pagila is a PostgreSQL port of the Sakila example database, which was originally developed by Mike

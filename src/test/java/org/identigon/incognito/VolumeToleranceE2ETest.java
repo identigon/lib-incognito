@@ -58,7 +58,7 @@ class VolumeToleranceE2ETest {
         Assumptions.assumeTrue(dockerAvailable, "Docker not available — skipping Testcontainers E2E");
 
         try {
-            pg = new PostgreSQLContainer("postgres:16-alpine")
+            pg = new PostgreSQLContainer(TestPostgres.IMAGE)
                 .withDatabaseName("volume_source").withUsername("test").withPassword("test");
             pg.start();
 
