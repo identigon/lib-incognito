@@ -51,7 +51,7 @@ tables:
       city:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
       state:       { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       country:     { role: PAYLOAD }
-      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       phone:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       fax:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       email:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
@@ -65,7 +65,7 @@ tables:
       city:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
       state:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       country:        { role: PAYLOAD }
-      postal_code:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       phone:          { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       fax:            { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       email:          { role: DIRECT_ID,   directIdStrategy: ALTEREGO_EMAIL }
@@ -79,7 +79,7 @@ tables:
       billing_city:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_CITY }
       billing_state:       { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       billing_country:     { role: PAYLOAD }
-      billing_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      billing_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       total:               { role: PAYLOAD }
   invoice_line:
     columns:

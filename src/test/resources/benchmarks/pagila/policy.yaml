@@ -21,7 +21,7 @@ tables:
       address2:    { role: PAYLOAD }   # a single constant (empty) value in Sakila — nothing to fabricate
       district:    { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
       city_id:     { role: FOREIGN_KEY, references: { table: city, column: city_id } }
-      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       phone:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       last_update: { role: PAYLOAD }
   actor:

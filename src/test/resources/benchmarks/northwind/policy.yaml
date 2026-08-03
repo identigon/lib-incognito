@@ -27,7 +27,7 @@ tables:
       address:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
       city:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       region:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
-      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       country:       { role: PAYLOAD }
       phone:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       fax:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
@@ -43,7 +43,7 @@ tables:
       address:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
       city:              { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       region:            { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
-      postal_code:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       country:           { role: PAYLOAD }
       home_phone:        { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       extension:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # phone extension: contact PII, code-like
@@ -76,7 +76,7 @@ tables:
       ship_address:     { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
       ship_city:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       ship_region:      { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
-      ship_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      ship_postal_code: { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       ship_country:     { role: PAYLOAD }
   products:
     columns:
@@ -108,11 +108,11 @@ tables:
       address:       { role: DIRECT_ID,   directIdStrategy: ALTEREGO_STREET_ADDRESS }
       city:          { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
       region:        { role: QUASI_ID, quasiIdStrategy: SYNTHESISE }
-      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }
+      postal_code:   { role: DIRECT_ID,   directIdStrategy: ALTEREGO_POSTCODE }
       country:       { role: PAYLOAD }
       phone:         { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
       fax:           { role: DIRECT_ID,   directIdStrategy: ALTEREGO_PHONE }
-      homepage:      { role: DIRECT_ID,   directIdStrategy: ALTEREGO_GENERIC }   # identifies the supplier, like company_name
+      homepage:      { role: DIRECT_ID,   directIdStrategy: ALTEREGO_URL }   # a URL field; a real generator beats shape-preserving noise
   territories:
     columns:
       territory_id:          { role: PRIMARY_KEY, surrogateStrategy: PASSTHROUGH_SURROGATE }

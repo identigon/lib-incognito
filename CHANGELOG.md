@@ -22,6 +22,15 @@ meaningful rather than just a feature list:
 
 ## [Unreleased]
 
+### Added
+
+- **`DirectIdStrategy`: `ALTEREGO_POSTCODE`, `ALTEREGO_DOMAIN`, `ALTEREGO_URL`.** Three previously
+  unexposed `lib-alterego` typed generators (`postcode()`, `domainName()`, `url()`) are now
+  reachable from policy. `VerificationStage` positively asserts each strategy's fictionality
+  guarantee on the target (GB postcode inward-code letter; RFC 2606 reserved domain/TLD for
+  domain/URL), and these strategies are excluded from the generic DIRECT_ID survival check, same as
+  `ALTEREGO_EMAIL`.
+
 ## [1.0.0] — 2026-08-02
 
 Pre-1.0 development. v1.0 scope: PostgreSQL only; in-memory key/cascade stores; single-threaded.

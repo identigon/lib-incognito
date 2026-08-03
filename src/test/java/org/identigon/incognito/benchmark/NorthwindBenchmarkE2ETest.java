@@ -157,6 +157,27 @@ class NorthwindBenchmarkE2ETest {
             assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM employees WHERE photo_path LIKE '%davolio%'"),
                 "the surname embedded in photo_path must not survive");
 
+            // Postal codes fabricated into GB-format postcodes with the guaranteed-fictional
+            // inward-code letter (never a real, deliverable postcode).
+            for (String col : new String[] {
+                "customers.postal_code", "employees.postal_code",
+                "orders.ship_postal_code", "suppliers.postal_code"}) {
+                String table = col.substring(0, col.indexOf('.'));
+                String column = col.substring(col.indexOf('.') + 1);
+                assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM " + table + " WHERE " + column
+                    + " !~ '^[A-Z]{1,2}[0-9]{1,2} [0-9][A-Z]{2}$'"), col + " must be a GB-format postcode");
+                assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM " + table + " WHERE RIGHT(" + column
+                    + ", 1) NOT IN ('C','I','K','M','O','V')"), col + " must use the guaranteed-fictional inward-code letter");
+            }
+
+            // suppliers.homepage fabricated into a fictional URL (RFC 2606 reserved domain/TLD),
+            // never the supplier's real website.
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM suppliers WHERE homepage IS NOT NULL "
+                + "AND homepage !~ '^https?://(example\\.com|example\\.net|example\\.org|[a-z]+\\.(test|example|invalid))(/.*)?$'"),
+                "suppliers.homepage must be a fictional URL, not the real website");
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM suppliers WHERE homepage LIKE '%microsoft.com%'"),
+                "the real (if defunct) URLs embedded in the source homepage field must not survive");
+
             // Opaque bytea columns kept and surfaced in the DPIA report's passthrough audit (§7.2).
             List<String> catFlags = result.report().tables().stream()
                 .filter(tr -> tr.table().equals("categories")).findFirst().orElseThrow()

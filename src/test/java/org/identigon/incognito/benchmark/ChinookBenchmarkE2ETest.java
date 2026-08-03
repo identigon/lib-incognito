@@ -156,6 +156,17 @@ class ChinookBenchmarkE2ETest {
             assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM customer WHERE email = 'luisg@embraer.com.br'"),
                 "customer e-mails must be fabricated");
 
+            // Postal codes fabricated into GB-format postcodes with the guaranteed-fictional
+            // inward-code letter (never a real, deliverable postcode).
+            for (String col : new String[] {"employee.postal_code", "customer.postal_code", "invoice.billing_postal_code"}) {
+                String table = col.substring(0, col.indexOf('.'));
+                String column = col.substring(col.indexOf('.') + 1);
+                assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM " + table + " WHERE " + column
+                    + " !~ '^[A-Z]{1,2}[0-9]{1,2} [0-9][A-Z]{2}$'"), col + " must be a GB-format postcode");
+                assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM " + table + " WHERE RIGHT(" + column
+                    + ", 1) NOT IN ('C','I','K','M','O','V')"), col + " must use the guaranteed-fictional inward-code letter");
+            }
+
             // Operational categoricals kept real (not PII).
             assertTrue(scalar(tgt, "SELECT COUNT(*) FROM genre WHERE name = 'Rock'") > 0,
                 "genre names kept real");

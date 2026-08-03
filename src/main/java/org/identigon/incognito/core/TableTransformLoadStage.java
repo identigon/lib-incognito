@@ -463,8 +463,11 @@ public final class TableTransformLoadStage implements PipelineStage {
             case ALTEREGO_ORGANISATION -> alterEgo.organisationName();
             case ALTEREGO_CITY -> alterEgo.city();
             case ALTEREGO_STREET_ADDRESS -> alterEgo.streetAddress();
+            case ALTEREGO_POSTCODE -> alterEgo.postcode();
             case ALTEREGO_EMAIL -> alterEgo.emailAddress();
             case ALTEREGO_PHONE -> alterEgo.phoneNumber();
+            case ALTEREGO_DOMAIN -> alterEgo.domainName();
+            case ALTEREGO_URL -> alterEgo.url();
             case ALTEREGO_GENERIC -> alterEgo.bind(domain, (input, ctx) -> fabricateShapePreserving(input, ctx.random()));
         };
 

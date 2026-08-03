@@ -26,7 +26,9 @@ import org.identigon.incognito.policy.TablePolicy;
  * Stage 4: Verifies the target database after loading.
  * <ul>
  *   <li>Referential integrity: no dangling FK references.</li>
- *   <li>Fictionality: DIRECT_ID email columns use RFC 2606 reserved domains.</li>
+ *   <li>Fictionality: DIRECT_ID email columns use RFC 2606 reserved domains; postcode columns use
+ *       the guaranteed-fictional inward-code letter; domain/URL columns use RFC 2606 reserved
+ *       domains/TLDs.</li>
  *   <li>Misdeclaration lint (SPEC §4.1): cross-checks every {@code SENSITIVE distinguishing: false}
  *       column's real {@code COUNT(DISTINCT)} against {@code maxCategoricalCardinality}.</li>
  *   <li>Per-period volume tolerance (SPEC §4.2, Appendix D): for temporal QUASI_ID columns,
@@ -48,6 +50,25 @@ public final class VerificationStage implements PipelineStage {
         "example.com", "example.net", "example.org",
         "example.co.uk", "example.org.uk"
     );
+
+    /**
+     * Matches exactly the domains {@code DomainNameStrategy} (lib-alterego) can produce: one of its
+     * three reserved second-level domains, or a freshly-minted subdomain of one of its three
+     * reserved TLDs (RFC 2606).
+     */
+    private static final String RESERVED_DOMAIN_REGEX =
+        "^(example\\.com|example\\.net|example\\.org|[a-z]+\\.(test|example|invalid))$";
+
+    /** As {@link #RESERVED_DOMAIN_REGEX}, wrapped in the scheme + optional path {@code UrlStrategy} adds. */
+    private static final String RESERVED_URL_REGEX =
+        "^https?://(example\\.com|example\\.net|example\\.org|[a-z]+\\.(test|example|invalid))(/.*)?$";
+
+    /**
+     * {@code PostcodeStrategy}'s default (non-{@code realistic}) guarantee (ADR 0005, lib-alterego):
+     * the inward code's last letter is drawn only from these — letters Royal Mail never uses there
+     * — so the output can never coincide with a real, deliverable postcode.
+     */
+    private static final List<String> POSTCODE_NEVER_USED_LETTERS = List.of("C", "I", "K", "M", "O", "V");
 
     /**
      * Margin above the threshold at which we skip the pg_stats pre-filter and run the exact count
@@ -136,9 +157,16 @@ public final class VerificationStage implements PipelineStage {
                 TablePolicy tablePolicy = tablePolicyOpt.get();
                 for (Map.Entry<String, ColumnPolicy> entry : getColumnPolicies(tablePolicy)) {
                     ColumnPolicy colPolicy = entry.getValue();
-                    if (colPolicy.role() == ColumnRole.DIRECT_ID
-                            && colPolicy.directIdStrategy() == DirectIdStrategy.ALTEREGO_EMAIL) {
+                    if (colPolicy.role() != ColumnRole.DIRECT_ID) continue;
+                    DirectIdStrategy strategy = colPolicy.directIdStrategy();
+                    if (strategy == DirectIdStrategy.ALTEREGO_EMAIL) {
                         verifyEmailFictionality(targetConn, tableName, colPolicy.columnName(), failures, failedTables);
+                    } else if (strategy == DirectIdStrategy.ALTEREGO_POSTCODE) {
+                        verifyPostcodeFictionality(targetConn, tableName, colPolicy.columnName(), failures, failedTables);
+                    } else if (strategy == DirectIdStrategy.ALTEREGO_DOMAIN) {
+                        verifyDomainFictionality(targetConn, tableName, colPolicy.columnName(), failures, failedTables);
+                    } else if (strategy == DirectIdStrategy.ALTEREGO_URL) {
+                        verifyUrlFictionality(targetConn, tableName, colPolicy.columnName(), failures, failedTables);
                     }
                 }
             }
@@ -263,8 +291,13 @@ public final class VerificationStage implements PipelineStage {
                 for (Map.Entry<String, ColumnPolicy> entry : getColumnPolicies(tablePolicy)) {
                     ColumnPolicy colPolicy = entry.getValue();
                     if (colPolicy.role() != ColumnRole.DIRECT_ID) continue;
-                    // Email fictionality is already checked in section 2; this is for other strategies.
-                    if (colPolicy.directIdStrategy() == DirectIdStrategy.ALTEREGO_EMAIL) continue;
+                    // Email/postcode/domain/URL fictionality is already checked in section 2 against
+                    // an absolute reserved-value guarantee; this survival net is for other strategies.
+                    DirectIdStrategy strategy = colPolicy.directIdStrategy();
+                    if (strategy == DirectIdStrategy.ALTEREGO_EMAIL
+                            || strategy == DirectIdStrategy.ALTEREGO_POSTCODE
+                            || strategy == DirectIdStrategy.ALTEREGO_DOMAIN
+                            || strategy == DirectIdStrategy.ALTEREGO_URL) continue;
 
                     String colName = colPolicy.columnName();
                     verifySurvival(sourceConn, targetConn3, tableName, colName, failures, warnings, failedTables);
@@ -365,6 +398,65 @@ public final class VerificationStage implements PipelineStage {
             if (rs.next() && rs.getLong(1) > 0) {
                 failures.add("Fictionality violation: " + tableName + "." + columnName
                     + " has " + rs.getLong(1) + " email(s) not using RFC 2606 reserved domains");
+                failedTables.add(tableName);
+            }
+        }
+    }
+
+    private void verifyPostcodeFictionality(
+            Connection conn, String tableName, String columnName,
+            List<String> failures, java.util.Set<String> failedTables) throws SQLException {
+
+        // Every non-null postcode's inward code must end in one of the never-used letters.
+        String letterCondition = POSTCODE_NEVER_USED_LETTERS.stream()
+            .map(l -> "RIGHT(" + columnName + ", 1) = '" + l + "'")
+            .collect(Collectors.joining(" OR "));
+
+        String sql = "SELECT COUNT(*) FROM " + tableName
+            + " WHERE " + columnName + " IS NOT NULL"
+            + " AND NOT (" + letterCondition + ")";
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next() && rs.getLong(1) > 0) {
+                failures.add("Fictionality violation: " + tableName + "." + columnName
+                    + " has " + rs.getLong(1) + " postcode(s) not using the guaranteed-fictional inward-code letter");
+                failedTables.add(tableName);
+            }
+        }
+    }
+
+    private void verifyDomainFictionality(
+            Connection conn, String tableName, String columnName,
+            List<String> failures, java.util.Set<String> failedTables) throws SQLException {
+
+        String sql = "SELECT COUNT(*) FROM " + tableName
+            + " WHERE " + columnName + " IS NOT NULL"
+            + " AND " + columnName + " !~ '" + RESERVED_DOMAIN_REGEX + "'";
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next() && rs.getLong(1) > 0) {
+                failures.add("Fictionality violation: " + tableName + "." + columnName
+                    + " has " + rs.getLong(1) + " domain(s) not using RFC 2606 reserved domains/TLDs");
+                failedTables.add(tableName);
+            }
+        }
+    }
+
+    private void verifyUrlFictionality(
+            Connection conn, String tableName, String columnName,
+            List<String> failures, java.util.Set<String> failedTables) throws SQLException {
+
+        String sql = "SELECT COUNT(*) FROM " + tableName
+            + " WHERE " + columnName + " IS NOT NULL"
+            + " AND " + columnName + " !~ '" + RESERVED_URL_REGEX + "'";
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next() && rs.getLong(1) > 0) {
+                failures.add("Fictionality violation: " + tableName + "." + columnName
+                    + " has " + rs.getLong(1) + " URL(s) not using a reserved scheme/domain");
                 failedTables.add(tableName);
             }
         }

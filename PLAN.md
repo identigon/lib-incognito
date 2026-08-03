@@ -84,6 +84,34 @@ Phased plan for building `Incognito` — a Java 25 library that clones a product
   - **Privacy position (settled, not a temporary gap):** `ALTEREGO_GENERIC` / string-`SYNTHESISE` output is shape-preserving with **no fictionality guarantee** — a fabricated generic value *could*, by coincidence, equal a real one. This is inherent (above). The guarantee is available only via reserved-space built-ins (`emailAddress` → RFC 2606, `phoneNumber` → Ofcom, authored names, the identifier built-ins); route a column to a typed strategy when the guarantee matters. The DIRECT_ID survival check (`VerificationStage`) is a probabilistic net, not the guarantee.
 - [x] **Type-aware redaction** (`RedactionStrategy`) — **done** (consumes AlterEgo 0.3.0-SNAPSHOT). `CONSTANT`/`MASK` no longer assume text: value production is delegated to `AlterEgo.redact(Class<T>)` / `constant` / `mask`, so a numeric, temporal, boolean or opaque `SENSITIVE` column receives a type-appropriate constant that fits the column instead of failing at insert. `MASK` masks text and falls back to the typed constant for non-text; `CLEAR` stays `null` (a `NOT NULL` column should use `CONSTANT`/`MASK`). Covered by `RedactionTypeE2ETest` (INTEGER/NUMERIC/DATE/BOOLEAN + text MASK).
 - [x] **Default-on misdeclaration lint runtime** (`distinguishingLint`) — done in Phase 6: `VerificationStage` runs `COUNT(DISTINCT)` (with a `pg_stats` pre-filter) on every `distinguishing: false` SENSITIVE column; `WARN` reports, `ERROR` throws, `OFF` skips. Never the gate. Covered by `DistinguishingLintTest`.
+- [x] **Expose `postcode()` / `domainName()` / `url()` from `lib-alterego` — done.**
+  `DirectIdStrategy` previously wired 8 of AlterEgo 0.3.0's typed generators but stopped short of
+  these three, even though `postcode()` was already named as a QI example in the YAML sample
+  (SPEC §6). Added `ALTEREGO_POSTCODE`, `ALTEREGO_DOMAIN`, `ALTEREGO_URL` (SPEC §7, Appendix A) and
+  wired all three into `TableTransformLoadStage`'s `DirectIdStrategy → Transformation` switch
+  (`ae.postcode()` / `ae.domainName()` / `ae.url()`). Migrated the previously-underserved columns
+  off `ALTEREGO_GENERIC`: Chinook (`employee.postal_code`, `customer.postal_code`,
+  `invoice.billing_postal_code`), Northwind (`customers.postal_code`, `employees.postal_code`,
+  `orders.ship_postal_code`, `suppliers.postal_code`), and Pagila (`address.postal_code`) now use
+  `ALTEREGO_POSTCODE`; Northwind's `suppliers.homepage` (a real, if messily
+  MS-Access-hyperlink-formatted, URL column) now uses `ALTEREGO_URL`. Each benchmark E2E test
+  asserts the target values are GB-format postcodes carrying the guaranteed-fictional inward-code
+  letter (or, for `homepage`, a fictional RFC 2606 URL) — all three affected benchmarks (Chinook,
+  Northwind, Pagila) pass against real Testcontainers PostgreSQL.
+  - `postcode()`'s GB-only resolution (lib-alterego ships no other country's postcode table) is not
+    a new restriction — every typed generator in this enum is GB-only today, since only GB
+    dictionaries are bundled; every benchmark runs under Incognito's default `Locale.UK`, so this
+    did not block adoption.
+  - `VerificationStage` now positively asserts all three fictionality guarantees on the target (not
+    just the benchmarks): `verifyPostcodeFictionality` (inward-code letter),
+    `verifyDomainFictionality` / `verifyUrlFictionality` (RFC 2606 reserved domain/TLD regex) — the
+    SPEC §4.3 stretch goal, done rather than deferred. These three strategies are also excluded from
+    the generic DIRECT_ID source-value survival net (same reasoning as the existing
+    `ALTEREGO_EMAIL` exclusion: the positive guarantee is strictly stronger).
+  - Remaining, deliberately out of scope here: Appendix B's `SYNTHESISE`-by-type routing (a
+    postcode-shaped `QUASI_ID` VARCHAR still falls through to shape-preserving fabrication) is a
+    **separate, still-unimplemented** gap — no type-based routing exists at all yet. Same underlying
+    weakness class as this `DIRECT_ID` gap was, but a distinct fix, not addressed by this item.
 
 ---
 

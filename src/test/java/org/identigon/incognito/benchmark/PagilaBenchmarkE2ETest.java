@@ -175,6 +175,15 @@ class PagilaBenchmarkE2ETest {
             assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM staff WHERE picture IS NOT NULL"),
                 "staff photos must be dropped, not copied");
 
+            // Postal codes fabricated into GB-format postcodes with the guaranteed-fictional
+            // inward-code letter (never a real, deliverable postcode).
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM address WHERE postal_code IS NOT NULL "
+                + "AND postal_code !~ '^[A-Z]{1,2}[0-9]{1,2} [0-9][A-Z]{2}$'"),
+                "address.postal_code must be a GB-format postcode");
+            assertEquals(0, scalar(tgt, "SELECT COUNT(*) FROM address WHERE postal_code IS NOT NULL "
+                + "AND RIGHT(postal_code, 1) NOT IN ('C','I','K','M','O','V')"),
+                "address.postal_code must use the guaranteed-fictional inward-code letter");
+
             // Views were excluded from the clone (not treated as base tables).
             Set<String> reported = result.report().tables().stream().map(tr -> tr.table()).collect(Collectors.toSet());
             assertFalse(reported.contains("customer_list"), "view customer_list not cloned");
