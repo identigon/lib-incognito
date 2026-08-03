@@ -16,6 +16,9 @@ import java.util.List;
  *     the categorical threshold (SPEC §4.1) — candidate misdeclarations kept opaque; populated only
  *     when the lint runs in {@link DistinguishingLint#WARN} mode (in {@code ERROR} mode the run
  *     aborts before any report is built)
+ * @param structuralFindings per-FK-edge relational fingerprints (SPEC §2.4) — subjects singled out
+ *     by their FK fan-out rather than by any field value; populated only when
+ *     {@link StructuralUniquenessMode#REPORT} is enabled (off by default)
  * @param stageResults the result of each pipeline stage, in execution order
  */
 public record AnonymisationReport(
@@ -23,6 +26,7 @@ public record AnonymisationReport(
     List<TableReport> tables,
     List<SurvivalFinding> survivalFindings,
     List<LintFinding> lintFindings,
+    List<StructuralUniquenessFinding> structuralFindings,
     List<PipelineStage.StageResult> stageResults
 ) {
     /**
@@ -102,4 +106,27 @@ public record AnonymisationReport(
      * @param threshold the {@code maxCategoricalCardinality} the count exceeded
      */
     public record LintFinding(String table, String column, long distinctValues, int threshold) {}
+
+    /**
+     * A relational fingerprint on a single FK edge (SPEC §2.4): row counts and the FK graph are
+     * preserved 1:1, so a parent row with a rare or unique count of referencing child rows (e.g.
+     * "the one customer with 300 orders") can be singled out from <em>structure</em> alone, even
+     * though every field on it was fabricated. This is advisory evidence, never a privacy gate — it
+     * changes no data and never fails the run (there is no {@code ERROR} mode).
+     *
+     * @param parentTable the singled-out subject's table
+     * @param childTable the table whose FK to {@code parentTable} produced this fingerprint
+     * @param childColumns the child's FK column(s), in key order — identifies <em>which</em> edge this
+     *     is when a child references the same parent through more than one foreign key
+     * @param distinctParents how many parent rows have at least one referencing child row
+     * @param maxChildCount the largest number of referencing child rows observed for any parent
+     * @param uniqueFingerprintCount how many parent rows are the sole holder of their child count —
+     *     singled out by fan-out alone
+     * @param rareFingerprintCount how many parent rows have a child count shared by fewer than
+     *     {@code k} parents in total (so a unique fingerprint, group size 1, is also rare when k &gt; 1)
+     * @param k the rareness threshold {@code rareFingerprintCount} was computed against
+     */
+    public record StructuralUniquenessFinding(
+        String parentTable, String childTable, List<String> childColumns, long distinctParents,
+        long maxChildCount, long uniqueFingerprintCount, long rareFingerprintCount, int k) {}
 }

@@ -2,6 +2,7 @@
 # YamlPolicyParser. The partitioned `payment` table (and its partitions) is simply omitted — undeclared
 # tables are skipped. staff PK is passthrough so store.manager_staff_id (no FK constraint) stays coherent.
 autoInfer: false
+structuralUniqueness: REPORT   # demonstrate the SPEC 2.4 relational-fingerprint DPIA evidence
 tables:
   country:
     columns:

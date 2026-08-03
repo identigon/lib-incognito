@@ -31,6 +31,9 @@ public final class AnonymisationReportBuilder {
     /** Context attribute key: the list of {@link AnonymisationReport.LintFinding} from verification. */
     public static final String ATTR_LINT_FINDINGS = "incognito.verification.lintFindings";
 
+    /** Context attribute key: the list of {@link AnonymisationReport.StructuralUniquenessFinding} from verification. */
+    public static final String ATTR_STRUCTURAL_FINDINGS = "incognito.verification.structuralFindings";
+
     /**
      * Builds the anonymisation report from the run's context and stage results.
      *
@@ -54,10 +57,13 @@ public final class AnonymisationReportBuilder {
         List<AnonymisationReport.LintFinding> lintFindings =
             (List<AnonymisationReport.LintFinding>) context.attributes().getOrDefault(
                 ATTR_LINT_FINDINGS, Collections.emptyList());
+        List<AnonymisationReport.StructuralUniquenessFinding> structuralFindings =
+            (List<AnonymisationReport.StructuralUniquenessFinding>) context.attributes().getOrDefault(
+                ATTR_STRUCTURAL_FINDINGS, Collections.emptyList());
 
         if (planObj == null || metaObj == null) {
-            return new AnonymisationReport(
-                saltMode, Collections.emptyList(), survivalFindings, lintFindings, stageResults);
+            return new AnonymisationReport(saltMode, Collections.emptyList(), survivalFindings,
+                lintFindings, structuralFindings, stageResults);
         }
 
         TableDependencyGraph.TopologicalExecutionPlan plan = (TableDependencyGraph.TopologicalExecutionPlan) planObj;
@@ -147,8 +153,8 @@ public final class AnonymisationReportBuilder {
             ));
         }
 
-        return new AnonymisationReport(
-            saltMode, tableReports, survivalFindings, lintFindings, stageResults);
+        return new AnonymisationReport(saltMode, tableReports, survivalFindings, lintFindings,
+            structuralFindings, stageResults);
     }
 
     /**

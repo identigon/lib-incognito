@@ -1,6 +1,7 @@
 # PetClinic anonymisation policy — the same policy the benchmark previously built in Java, expressed
 # in YAML and loaded via YamlPolicyParser, so the YAML config path is exercised end-to-end.
 autoInfer: false
+structuralUniqueness: REPORT   # demonstrate the SPEC 2.4 relational-fingerprint DPIA evidence
 tables:
   vets:
     columns:

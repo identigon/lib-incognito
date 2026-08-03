@@ -1,6 +1,7 @@
 # Employees anonymisation policy (was the Java builder in EmployeesBenchmarkE2ETest), loaded via
 # YamlPolicyParser. emp_no is reassigned (SEQUENTIAL_LONG) and rewritten into every child composite key.
 autoInfer: false
+structuralUniqueness: REPORT   # demonstrate the SPEC 2.4 relational-fingerprint DPIA evidence
 tables:
   employee:
     columns:

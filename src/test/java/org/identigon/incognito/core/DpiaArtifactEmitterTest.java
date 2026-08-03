@@ -25,17 +25,22 @@ class DpiaArtifactEmitterTest {
         var passthrough = List.of(
             new AnonymisationReport.PassthroughFlag("payload", "OTHER",
                 "untransformed potentially-identifying type kept as-is (SPEC §7.2)"));
+        var suggestions = List.of(
+            new AnonymisationReport.InferSuggestion("ssn", ColumnRole.DIRECT_ID, "name-matches-/ssn/"));
         var table = new AnonymisationReport.TableReport(
-            "customers", columns, 42L, passthrough, List.of(), true);
+            "customers", columns, 42L, passthrough, suggestions, true);
         var survival = List.of(
             new AnonymisationReport.SurvivalFinding("customers", "email", 100L, 3L, false));
         var lint = List.of(
             new AnonymisationReport.LintFinding("customers", "city", 5000L, 50));
+        var structural = List.of(
+            new AnonymisationReport.StructuralUniquenessFinding(
+                "customers", "orders", List.of("customer_id"), 20L, 300L, 1L, 3L, 5));
         var stages = List.of(
             new PipelineStage.StageResult("TableTransformLoadStage", true, 42, "loaded 42 rows"),
             new PipelineStage.StageResult("VerificationStage", false, 1, "Verification FAILED: dangling FK"));
         return new AnonymisationReport(
-            SaltMode.EPHEMERAL, List.of(table), survival, lint, stages);
+            SaltMode.EPHEMERAL, List.of(table), survival, lint, structural, stages);
     }
 
     @Test
@@ -55,6 +60,12 @@ class DpiaArtifactEmitterTest {
         assertTrue(json.contains("\"hardFailure\": false"), "survival verdict recorded");
         assertTrue(json.contains("\"lintFindings\""), "lint findings section present");
         assertTrue(json.contains("\"distinctValues\": 5000"), "lint distinct count recorded");
+        assertTrue(json.contains("\"structuralFindings\""), "structural findings section present");
+        assertTrue(json.contains("\"maxChildCount\": 300"), "structural fan-out recorded");
+        assertTrue(json.contains("\"uniqueFingerprintCount\": 1"), "structural unique count recorded");
+        assertTrue(json.contains("\"childColumns\": [\"customer_id\"]"), "structural FK column(s) recorded");
+        assertTrue(json.contains("\"inferSuggestions\""), "inference-suggestions section present");
+        assertTrue(json.contains("\"suggestedRole\": \"DIRECT_ID\""), "inference suggestion rendered");
         assertEquals(count(json, '{'), count(json, '}'), "braces balanced");
     }
 
@@ -74,6 +85,9 @@ class DpiaArtifactEmitterTest {
         assertTrue(html.contains("EPHEMERAL"), "salt mode value rendered");
         assertTrue(html.contains("Source-value survival"), "survival section rendered");
         assertTrue(html.contains("Misdeclaration lint"), "lint section rendered");
+        assertTrue(html.contains("Structural re-identification risk"), "structural section rendered");
+        assertTrue(html.contains("<td>orders</td>"), "structural child table rendered");
+        assertTrue(html.contains("Inference suggestions"), "inference-suggestions section rendered");
     }
 
     @Test
@@ -88,6 +102,9 @@ class DpiaArtifactEmitterTest {
         assertTrue(md.contains("**Salt mode:**"), "salt mode disclosed");
         assertTrue(md.contains("Source-Value Survival"), "survival section rendered");
         assertTrue(md.contains("Misdeclaration Lint"), "lint section rendered");
+        assertTrue(md.contains("Structural Re-identification Risk"), "structural section rendered");
+        assertTrue(md.contains("| customers | orders |"), "structural finding row rendered");
+        assertTrue(md.contains("Inference Suggestions"), "inference-suggestions section rendered");
     }
 
     private static long count(String s, char c) {

@@ -54,6 +54,23 @@ public final class DpiaArtifactEmitter {
                     + ", \"distinctValues\": " + lf.distinctValues()
                     + ", \"threshold\": " + lf.threshold() + "}");
             }
+            w.write("],\n  \"structuralFindings\": [");
+            for (int u = 0; u < report.structuralFindings().size(); u++) {
+                AnonymisationReport.StructuralUniquenessFinding suf = report.structuralFindings().get(u);
+                StringBuilder cols = new StringBuilder("[");
+                for (int ci = 0; ci < suf.childColumns().size(); ci++) {
+                    cols.append(ci == 0 ? "" : ", ").append(jsonStr(suf.childColumns().get(ci)));
+                }
+                cols.append("]");
+                w.write((u == 0 ? "" : ", ") + "{\"parentTable\": " + jsonStr(suf.parentTable())
+                    + ", \"childTable\": " + jsonStr(suf.childTable())
+                    + ", \"childColumns\": " + cols
+                    + ", \"distinctParents\": " + suf.distinctParents()
+                    + ", \"maxChildCount\": " + suf.maxChildCount()
+                    + ", \"uniqueFingerprintCount\": " + suf.uniqueFingerprintCount()
+                    + ", \"rareFingerprintCount\": " + suf.rareFingerprintCount()
+                    + ", \"k\": " + suf.k() + "}");
+            }
             w.write("],\n  \"stages\": [\n");
             for (int i = 0; i < report.stageResults().size(); i++) {
                 PipelineStage.StageResult sr = report.stageResults().get(i);
@@ -82,6 +99,13 @@ public final class DpiaArtifactEmitter {
                     w.write((p == 0 ? "" : ", ") + "{\"column\": " + jsonStr(pf.column())
                         + ", \"jdbcType\": " + jsonStr(pf.jdbcType())
                         + ", \"reason\": " + jsonStr(pf.reason()) + "}");
+                }
+                w.write("],\n      \"inferSuggestions\": [");
+                for (int s = 0; s < tr.inferSuggestions().size(); s++) {
+                    AnonymisationReport.InferSuggestion is = tr.inferSuggestions().get(s);
+                    w.write((s == 0 ? "" : ", ") + "{\"column\": " + jsonStr(is.column())
+                        + ", \"suggestedRole\": " + jsonStr(is.suggestedRole().name())
+                        + ", \"matchedHeuristic\": " + jsonStr(is.matchedHeuristic()) + "}");
                 }
                 w.write("]\n    }" + (t < report.tables().size() - 1 ? "," : "") + "\n");
             }
@@ -115,8 +139,10 @@ public final class DpiaArtifactEmitter {
                 + "</code> &mdash; " + saltModeNote(report.saltMode()) + "</p>\n");
 
             w.write("<h2>Residual re-identification risk</h2>\n");
-            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()) {
-                w.write("<p class=\"ok\">No source-value survival or misdeclaration findings.</p>\n");
+            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()
+                    && report.structuralFindings().isEmpty()) {
+                w.write("<p class=\"ok\">No source-value survival, misdeclaration, or structural"
+                    + " findings.</p>\n");
             }
             if (!report.survivalFindings().isEmpty()) {
                 w.write("<table><caption>Source-value survival (SPEC &sect;4.3 &mdash; singling-out evidence)"
@@ -137,6 +163,20 @@ public final class DpiaArtifactEmitter {
                 for (AnonymisationReport.LintFinding lf : report.lintFindings()) {
                     w.write("<tr><td>" + htmlEscape(lf.table()) + "</td><td>" + htmlEscape(lf.column())
                         + "</td><td>" + lf.distinctValues() + "</td><td>" + lf.threshold() + "</td></tr>\n");
+                }
+                w.write("</table>\n");
+            }
+            if (!report.structuralFindings().isEmpty()) {
+                w.write("<table><caption>Structural re-identification risk (SPEC &sect;2.4 &mdash;"
+                    + " relational fingerprints)</caption><tr><th>Parent table</th><th>Child table</th>"
+                    + "<th>FK column(s)</th><th>Distinct parents</th><th>Max child count</th>"
+                    + "<th>Unique fingerprints</th><th>Rare fingerprints (&lt;k)</th><th>k</th></tr>\n");
+                for (AnonymisationReport.StructuralUniquenessFinding suf : report.structuralFindings()) {
+                    w.write("<tr><td>" + htmlEscape(suf.parentTable()) + "</td><td>"
+                        + htmlEscape(suf.childTable()) + "</td><td>" + htmlEscape(String.join(", ", suf.childColumns()))
+                        + "</td><td>" + suf.distinctParents()
+                        + "</td><td>" + suf.maxChildCount() + "</td><td>" + suf.uniqueFingerprintCount()
+                        + "</td><td>" + suf.rareFingerprintCount() + "</td><td>" + suf.k() + "</td></tr>\n");
                 }
                 w.write("</table>\n");
             }
@@ -168,6 +208,15 @@ public final class DpiaArtifactEmitter {
                     for (AnonymisationReport.PassthroughFlag pf : tr.passthroughFlags()) {
                         w.write("<tr><td>" + htmlEscape(pf.column()) + "</td><td>" + htmlEscape(pf.jdbcType())
                             + "</td><td>" + htmlEscape(pf.reason()) + "</td></tr>\n");
+                    }
+                    w.write("</table>\n");
+                }
+                if (!tr.inferSuggestions().isEmpty()) {
+                    w.write("<table><caption>Inference suggestions (surfaced only, never auto-applied)"
+                        + "</caption><tr><th>Column</th><th>Suggested role</th><th>Heuristic</th></tr>\n");
+                    for (AnonymisationReport.InferSuggestion is : tr.inferSuggestions()) {
+                        w.write("<tr><td>" + htmlEscape(is.column()) + "</td><td>" + is.suggestedRole()
+                            + "</td><td>" + htmlEscape(is.matchedHeuristic()) + "</td></tr>\n");
                     }
                     w.write("</table>\n");
                 }
@@ -232,8 +281,9 @@ public final class DpiaArtifactEmitter {
                 saltModeNote(report.saltMode())));
 
             writer.write("## Residual Re-identification Risk\n\n");
-            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()) {
-                writer.write("No source-value survival or misdeclaration findings.\n\n");
+            if (report.survivalFindings().isEmpty() && report.lintFindings().isEmpty()
+                    && report.structuralFindings().isEmpty()) {
+                writer.write("No source-value survival, misdeclaration, or structural findings.\n\n");
             }
             if (!report.survivalFindings().isEmpty()) {
                 writer.write("### Source-Value Survival (SPEC §4.3 — singling-out evidence)\n\n");
@@ -253,6 +303,19 @@ public final class DpiaArtifactEmitter {
                 for (AnonymisationReport.LintFinding lf : report.lintFindings()) {
                     writer.write(String.format("| %s | %s | %d | %d |%n",
                         lf.table(), lf.column(), lf.distinctValues(), lf.threshold()));
+                }
+                writer.write("\n");
+            }
+            if (!report.structuralFindings().isEmpty()) {
+                writer.write("### Structural Re-identification Risk (SPEC §2.4 — relational fingerprints)\n\n");
+                writer.write("| Parent Table | Child Table | FK Column(s) | Distinct Parents |"
+                    + " Max Child Count | Unique Fingerprints | Rare Fingerprints (<k) | k |\n");
+                writer.write("|---|---|---|---|---|---|---|---|\n");
+                for (AnonymisationReport.StructuralUniquenessFinding suf : report.structuralFindings()) {
+                    writer.write(String.format("| %s | %s | %s | %d | %d | %d | %d | %d |%n",
+                        suf.parentTable(), suf.childTable(), String.join(", ", suf.childColumns()),
+                        suf.distinctParents(), suf.maxChildCount(),
+                        suf.uniqueFingerprintCount(), suf.rareFingerprintCount(), suf.k()));
                 }
                 writer.write("\n");
             }

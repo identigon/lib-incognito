@@ -36,6 +36,8 @@ import org.identigon.incognito.policy.TablePolicy;
  *       (min ±1 row).</li>
  *   <li>Source-value survival: for DIRECT_ID columns, verifies that no real source value
  *       survived in the target (a sanity net beyond the email-domain check).</li>
+ *   <li>Structural-uniqueness findings (SPEC §2.4, opt-in via {@code structuralUniqueness}): per-FK-edge
+ *       relational fingerprints — a parent row singled out by its count of referencing child rows.</li>
  * </ul>
  */
 public final class VerificationStage implements PipelineStage {
@@ -316,6 +318,42 @@ public final class VerificationStage implements PipelineStage {
                 "Source-value survival check failed", e);
         }
 
+        // 6. Structural-uniqueness findings (SPEC §2.4, opt-in — off by default): a per-FK-edge
+        //    relational fingerprint. Row counts and the FK graph are preserved 1:1, so a parent row
+        //    with a rare/unique count of referencing children can be singled out from structure
+        //    alone, even though every field on it was fabricated. Advisory evidence only — never a
+        //    privacy gate, never a run-abort (there is no ERROR mode).
+        List<org.identigon.incognito.api.AnonymisationReport.StructuralUniquenessFinding> structuralFindings =
+            new ArrayList<>();
+        if (policy.structuralUniqueness() == org.identigon.incognito.api.StructuralUniquenessMode.REPORT) {
+            int rarenessK = policy.structuralRarenessK();
+            try (Connection sourceConn = context.source().getConnection()) {
+                for (String parentTableName : plan.sequentialTableOrder()) {
+                    if (policy.table(parentTableName).isEmpty()) continue;
+                    SchemaInspector.TableMetadata parentMeta = metadataByName.get(parentTableName);
+                    if (parentMeta == null || parentMeta.primaryKeyColumns().isEmpty()) continue;
+
+                    for (String childTableName : plan.sequentialTableOrder()) {
+                        SchemaInspector.TableMetadata childMeta = metadataByName.get(childTableName);
+                        if (childMeta == null) continue;
+
+                        for (SchemaInspector.ForeignKeyConstraint fk : childMeta.foreignKeyConstraints()) {
+                            if (!fk.parentTable().equals(parentTableName)) continue;
+
+                            var finding = computeStructuralFinding(
+                                sourceConn, parentTableName, childTableName, fk, rarenessK);
+                            if (finding != null) {
+                                structuralFindings.add(finding);
+                            }
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                throw new IncognitoException.SchemaException(
+                    "Structural-uniqueness analysis failed querying source database", e);
+            }
+        }
+
         // Record which in-policy tables passed all verification checks, so the DPIA report can
         // mark them fictionality-verified (AnonymisationReportBuilder reads this attribute).
         List<String> verifiedTables = new ArrayList<>();
@@ -327,6 +365,7 @@ public final class VerificationStage implements PipelineStage {
         context.attributes().put("incognito.verification.verifiedTables", verifiedTables);
         context.attributes().put(AnonymisationReportBuilder.ATTR_SURVIVAL_FINDINGS, survivalFindings);
         context.attributes().put(AnonymisationReportBuilder.ATTR_LINT_FINDINGS, lintFindings);
+        context.attributes().put(AnonymisationReportBuilder.ATTR_STRUCTURAL_FINDINGS, structuralFindings);
 
         // Build the result message.
         if (!failures.isEmpty()) {
@@ -547,6 +586,55 @@ public final class VerificationStage implements PipelineStage {
                 }
             }
         }
+    }
+
+    /**
+     * Computes the relational fingerprint for a single FK edge (SPEC §2.4) on the source database:
+     * the distribution of referencing-child-row counts per parent row. Fabrication preserves row
+     * counts and the FK graph exactly, so the source distribution is also the target's residual risk
+     * — no second scan of the target is needed. Returns {@code null} if no parent row on this edge
+     * is singled out (unique fingerprint) or rare, so callers only ever see edges worth reporting.
+     */
+    private org.identigon.incognito.api.AnonymisationReport.StructuralUniquenessFinding computeStructuralFinding(
+            Connection sourceConn, String parentTable, String childTable,
+            SchemaInspector.ForeignKeyConstraint fk, int rarenessK) throws SQLException {
+
+        String cols = String.join(", ", fk.childColumns());
+        String notNull = fk.childColumns().stream()
+            .map(c -> c + " IS NOT NULL")
+            .collect(Collectors.joining(" AND "));
+
+        String sql = "SELECT c, COUNT(*) AS parents FROM ("
+            + "SELECT " + cols + ", COUNT(*) AS c FROM " + childTable
+            + " WHERE " + notNull + " GROUP BY " + cols
+            + ") parent_counts GROUP BY c";
+
+        long distinctParents = 0;
+        long maxChildCount = 0;
+        long uniqueFingerprintCount = 0;
+        long rareFingerprintCount = 0;
+
+        try (Statement stmt = sourceConn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                long c = rs.getLong(1);
+                long parentsWithThisCount = rs.getLong(2);
+                distinctParents += parentsWithThisCount;
+                maxChildCount = Math.max(maxChildCount, c);
+                if (parentsWithThisCount == 1) {
+                    uniqueFingerprintCount += 1;
+                }
+                if (parentsWithThisCount < rarenessK) {
+                    rareFingerprintCount += parentsWithThisCount;
+                }
+            }
+        }
+
+        if (uniqueFingerprintCount == 0 && rareFingerprintCount == 0) return null;
+
+        return new org.identigon.incognito.api.AnonymisationReport.StructuralUniquenessFinding(
+            parentTable, childTable, List.copyOf(fk.childColumns()), distinctParents, maxChildCount,
+            uniqueFingerprintCount, rareFingerprintCount, rarenessK);
     }
 
     /** Helper to get column policies from a TablePolicy. Uses the columns() accessor. */

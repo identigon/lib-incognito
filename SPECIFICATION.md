@@ -107,7 +107,7 @@ Classical k-anonymity/l-diversity exist to bound re-identification **while retai
 
 Incognito reduces, but a DPIA must still weigh, these residual risks — surfaced in the report, not hidden:
 
-- **Structural / relational re-identification.** Row counts and the FK graph are preserved 1:1, so a subject with a distinctive relational fingerprint (e.g. the one entity with 300 linked children) may be re-identifiable from *structure* even with fabricated fields — and any real value on that row (a kept operational/sensitive field) is then disclosed. v1.0 does not mitigate this; a **structural-uniqueness report** is a roadmap DPIA-evidence item.
+- **Structural / relational re-identification.** Row counts and the FK graph are preserved 1:1, so a subject with a distinctive relational fingerprint (e.g. the one entity with 300 linked children) may be re-identifiable from *structure* even with fabricated fields — and any real value on that row (a kept operational/sensitive field) is then disclosed. Incognito does not (and, by design, cannot) mitigate this — preserving structure is a requirement, not a defect — but an opt-in **structural-uniqueness report** (`structuralUniqueness: REPORT`, off by default) quantifies the exposure per FK edge: how many parent rows are singled out by a rare or unique count of referencing children (§4.1-style advisory evidence, never a privacy gate or a run-abort).
 - **Self-identifying sensitive/operational values.** A retained real value that is rare or free-text can itself identify (§2.2). Declaring `distinguishing: true` fabricates/redacts distinctive sensitive columns, and the default-on lint (§4.1) flags a `distinguishing: false` column that looks free-text; but the DPIA must still confirm the declarations are correct and that no *operational* column is inadvertently identifying — a mis-declared `distinguishing: false` leaks unless the lint (in `WARN` or `ERROR` mode) catches it.
 - **Undeclared identifiers.** A real identifier mistakenly left `OPERATIONAL`/`PAYLOAD` passes through. Fail-closed classification (§7.2) forces an explicit decision per column but cannot judge context.
 - **Value-equality pattern preserved.** Because fabrication is deterministic per `(salt, value)`, equal source values map to equal fabricated values within a run (needed for referential consistency where a value is denormalised across tables). The *pattern* of which rows share a value is therefore preserved even though the values are fake. A per-column *non-deterministic* mode is a post-v1.0 option.
@@ -264,6 +264,8 @@ The strategy is given by a **role-specific key** (not a single polymorphic `stra
 autoInfer: false                 # fail-closed default
 maxCategoricalCardinality: 64    # misdeclaration-lint threshold: flag a distinguishing:false column above it (§4.1)
 distinguishingLint: WARN         # default; cross-check distinguishing:false vs COUNT(DISTINCT). WARN | ERROR | OFF (§4.1)
+structuralUniqueness: OFF        # default; per-FK-edge relational-fingerprint findings. OFF | REPORT (§2.4)
+structuralRarenessK: 5           # rareness cutoff for structuralUniqueness findings
 
 tables:
   customers:
@@ -377,6 +379,8 @@ public record AnonymisationPolicy(...) {                       // fields elided
         Builder autoInfer(boolean enable);          // default FALSE (fail-closed)
         Builder maxCategoricalCardinality(int n);   // default 64 (§4.1)
         Builder distinguishingLint(DistinguishingLint mode); // default WARN (§4.1)
+        Builder structuralUniqueness(StructuralUniquenessMode mode); // default OFF (§2.4)
+        Builder structuralRarenessK(int k);          // default 5; rareness cutoff for §2.4 findings
         Builder table(String name, java.util.function.Consumer<TablePolicy.Builder> spec);
         AnonymisationPolicy build();
     }
@@ -420,11 +424,14 @@ public record PipelineResult(
 
 public enum SaltMode { EPHEMERAL, PERSISTENT, REPRODUCIBLE }  // how the run was keyed (§5.1/§5.2)
 
+public enum StructuralUniquenessMode { OFF, REPORT }  // relational-fingerprint findings (§2.4); no ERROR mode
+
 public record AnonymisationReport(
     SaltMode saltMode,                                   // Recital-26 anonymity-strength disclosure
     java.util.List<TableReport> tables,
     java.util.List<SurvivalFinding> survivalFindings,    // §4.3 singling-out evidence (quantified)
     java.util.List<LintFinding> lintFindings,            // §4.1 misdeclaration candidates (WARN)
+    java.util.List<StructuralUniquenessFinding> structuralFindings,  // §2.4 relational fingerprints
     java.util.List<PipelineStage.StageResult> stageResults
 ) {
     public record TableReport(
@@ -441,6 +448,10 @@ public record AnonymisationReport(
     public record SurvivalFinding(
         String table, String column, long sampledDistinct, long survived, boolean hardFailure) {}
     public record LintFinding(String table, String column, long distinctValues, int threshold) {}
+    public record StructuralUniquenessFinding(
+        String parentTable, String childTable, java.util.List<String> childColumns,
+        long distinctParents, long maxChildCount,
+        long uniqueFingerprintCount, long rareFingerprintCount, int k) {}
 }
 
 public interface KeyTranslationStore extends AutoCloseable {
@@ -613,7 +624,7 @@ Invariant: **anything a child looks up about its parent is keyed by the source F
 
 ## Appendix D — Orchestration, per-row dispatch, cyclic-FK load, and default constants
 
-**Default constants** (all overridable): streaming `fetchSize = 5000`; `maxCategoricalCardinality = 64`; `distinguishingLint = WARN` (on by default; §4.1); `JITTER_DAYS` default window if unspecified = ±14 days; `mask` default `keepLast = 0`, `maskChar = '*'`; per-period volume tolerance in `VerificationStage` = **±2%** of the source bucket count (min ±1 row); coherent-delta window = the column's `jitterDays` (default ±14).
+**Default constants** (all overridable): streaming `fetchSize = 5000`; `maxCategoricalCardinality = 64`; `distinguishingLint = WARN` (on by default; §4.1); `structuralUniqueness = OFF` (opt-in; §2.4), `structuralRarenessK = 5`; `JITTER_DAYS` default window if unspecified = ±14 days; `mask` default `keepLast = 0`, `maskChar = '*'`; per-period volume tolerance in `VerificationStage` = **±2%** of the source bucket count (min ±1 row); coherent-delta window = the column's `jitterDays` (default ±14).
 
 **`execute()` orchestration (pseudocode):**
 ```

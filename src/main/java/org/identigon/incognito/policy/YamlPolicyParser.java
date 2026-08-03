@@ -63,6 +63,13 @@ public class YamlPolicyParser {
             if (root.containsKey("distinguishingLint")) {
                 builder.distinguishingLint(org.identigon.incognito.api.DistinguishingLint.valueOf(String.valueOf(root.get("distinguishingLint")).toUpperCase()));
             }
+            if (root.containsKey("structuralUniqueness")) {
+                builder.structuralUniqueness(org.identigon.incognito.api.StructuralUniquenessMode.valueOf(
+                    String.valueOf(root.get("structuralUniqueness")).toUpperCase()));
+            }
+            if (root.containsKey("structuralRarenessK")) {
+                builder.structuralRarenessK((Integer) root.get("structuralRarenessK"));
+            }
 
             if (root.containsKey("tables")) {
                 Map<String, Map<String, Object>> tables = (Map<String, Map<String, Object>>) root.get("tables");

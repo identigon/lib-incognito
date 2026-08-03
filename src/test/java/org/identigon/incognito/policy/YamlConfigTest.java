@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.DirectIdStrategy;
 import org.identigon.incognito.api.IncognitoException;
+import org.identigon.incognito.api.StructuralUniquenessMode;
 import org.junit.jupiter.api.Test;
 
 class YamlConfigTest {
@@ -118,6 +119,22 @@ class YamlConfigTest {
 
         assertFalse(policy.autoInfer());
         assertEquals(64, policy.maxCategoricalCardinality());
+        assertEquals(StructuralUniquenessMode.OFF, policy.structuralUniqueness(), "off by default (SPEC §2.4)");
+        assertEquals(5, policy.structuralRarenessK());
         assertTrue(policy.tables().isEmpty());
+    }
+
+    @Test
+    void structuralUniquenessKeysParseFromYaml() {
+        String yamlString = """
+            structuralUniqueness: REPORT
+            structuralRarenessK: 10
+            """;
+
+        InputStream inputStream = new ByteArrayInputStream(yamlString.getBytes(StandardCharsets.UTF_8));
+        AnonymisationPolicy policy = new YamlPolicyParser().parse(inputStream);
+
+        assertEquals(StructuralUniquenessMode.REPORT, policy.structuralUniqueness());
+        assertEquals(10, policy.structuralRarenessK());
     }
 }

@@ -17,12 +17,18 @@ import java.util.function.Consumer;
  * @param autoInfer whether auto-inference may suggest roles (it never assigns them); default {@code false}
  * @param maxCategoricalCardinality the distinct-count threshold for the misdeclaration lint (§4.1)
  * @param distinguishingLint how the misdeclaration lint behaves (WARN / ERROR / OFF)
+ * @param structuralUniqueness whether {@code VerificationStage} computes relational-fingerprint
+ *     findings (SPEC §2.4); {@code OFF} by default — advisory DPIA evidence, never a run-abort
+ * @param structuralRarenessK the "rare" cutoff for a structural-uniqueness finding: a parent row's
+ *     child count is rare if fewer than this many parents in total share it
  * @param tables the per-table policies, keyed by table name
  */
 public record AnonymisationPolicy(
     boolean autoInfer,
     int maxCategoricalCardinality,
     org.identigon.incognito.api.DistinguishingLint distinguishingLint,
+    org.identigon.incognito.api.StructuralUniquenessMode structuralUniqueness,
+    int structuralRarenessK,
     Map<String, TablePolicy> tables
 ) {
     /**
@@ -61,6 +67,9 @@ public record AnonymisationPolicy(
         private boolean autoInfer = false;
         private int maxCategoricalCardinality = 64;
         private org.identigon.incognito.api.DistinguishingLint distinguishingLint = org.identigon.incognito.api.DistinguishingLint.WARN;
+        private org.identigon.incognito.api.StructuralUniquenessMode structuralUniqueness =
+            org.identigon.incognito.api.StructuralUniquenessMode.OFF;
+        private int structuralRarenessK = 5;
         private final Map<String, TablePolicy> tables = new LinkedHashMap<>();
 
         /**
@@ -97,6 +106,30 @@ public record AnonymisationPolicy(
         }
 
         /**
+         * Sets whether {@code VerificationStage} computes structural-uniqueness findings (SPEC §2.4).
+         *
+         * @param structuralUniqueness OFF (default) or REPORT
+         * @return this builder
+         */
+        public Builder structuralUniqueness(
+                org.identigon.incognito.api.StructuralUniquenessMode structuralUniqueness) {
+            this.structuralUniqueness = structuralUniqueness;
+            return this;
+        }
+
+        /**
+         * Sets the rareness cutoff for structural-uniqueness findings: a parent row's child count is
+         * rare if fewer than this many parents in total share it.
+         *
+         * @param structuralRarenessK the rareness threshold; default 5
+         * @return this builder
+         */
+        public Builder structuralRarenessK(int structuralRarenessK) {
+            this.structuralRarenessK = structuralRarenessK;
+            return this;
+        }
+
+        /**
          * Adds a table policy.
          *
          * @param tablePolicy the table policy
@@ -126,7 +159,8 @@ public record AnonymisationPolicy(
          * @return the built {@link AnonymisationPolicy}
          */
         public AnonymisationPolicy build() {
-            return new AnonymisationPolicy(autoInfer, maxCategoricalCardinality, distinguishingLint, tables);
+            return new AnonymisationPolicy(autoInfer, maxCategoricalCardinality, distinguishingLint,
+                structuralUniqueness, structuralRarenessK, tables);
         }
     }
 }

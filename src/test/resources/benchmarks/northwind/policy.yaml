@@ -3,6 +3,7 @@
 # company_name/contact_name/ship_name stay shape-preserving — their VARCHAR(30/40) columns are too
 # narrow for realistic full/organisation names.
 autoInfer: false
+structuralUniqueness: REPORT   # demonstrate the SPEC 2.4 relational-fingerprint DPIA evidence
 tables:
   categories:
     columns:

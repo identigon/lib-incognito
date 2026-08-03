@@ -1,6 +1,7 @@
 # Chinook anonymisation policy (was the Java builder in ChinookBenchmarkE2ETest), loaded via
 # YamlPolicyParser. INT PKs are reassigned (SEQUENTIAL_LONG); employee.reports_to is a self-referential FK.
 autoInfer: false
+structuralUniqueness: REPORT   # demonstrate the SPEC 2.4 relational-fingerprint DPIA evidence
 tables:
   artist:
     columns:

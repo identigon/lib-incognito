@@ -196,7 +196,16 @@ opaque-type passthrough audit (`PassthroughAuditE2ETest`).
   also now calls `DpiaArtifactEmitter` on its real `PipelineResult.report()` and asserts the
   JSON/HTML/Markdown files are written under `build/dpia-reports/<name>/` — previously that emitter
   was exercised only against a synthetic single-table sample in `DpiaArtifactEmitterTest`, never a
-  real, full-scale report.
+  real, full-scale report. All five benchmark policies opt into `structuralUniqueness: REPORT` so
+  the demonstration reports exercise the SPEC §2.4 relational-fingerprint analysis against real
+  multi-table schemas (each produces at least one structural finding); `saltMode` is likewise
+  present in every report. The data-driven elements appear where the data warrants —
+  `survivalFindings` (chinook, pagila) and `passthroughFlags` (northwind, pagila) — while
+  `lintFindings` stays empty because no policy mis-declares a high-cardinality `distinguishing:
+  false` column, and `inferSuggestions` stays empty because `autoInfer` is off in every
+  (deterministic) fixture. **Also fixed** an emitter completeness gap surfaced here:
+  `inferSuggestions` was rendered only in the Markdown format — JSON and HTML omitted it — so all
+  three formats now render every optional report element (unit-covered in the emitter test).
 - [x] **Temporal jitter/synthesise made type-complete** (was: `JITTER_DAYS` timestamp leak found via Chinook). Every QI branch — `JITTER_WITHIN_MONTH`/`_YEAR`, `JITTER_DAYS` (grouped and not), and `SYNTHESISE` — now shifts `LocalDate`/`java.sql.Date` (`shiftDate`), `java.sql.Timestamp`/`LocalDateTime` (`shiftDateTime`), and `Instant` (`shiftDateTime` at UTC) through a shared `shiftTemporalOrNull` helper. Previously a `TIMESTAMP`/`LocalDateTime` passed through **unshifted** under the non-`SYNTHESISE` branches — a real QI surviving (§7.3). The shared helper's timestamp path is exercised via Chinook (`SYNTHESISE` on a `TIMESTAMP` DOB); the jitter branches reuse it.
 - [x] **`shiftInstant` domain bug — fixed upstream** (lib-alterego `082a4a5`). It built a domain containing `=` that failed AlterEgo's own domain regex and threw for any arguments; it now routes through the same fragment helpers as `shiftDateTime`. Incognito nonetheless shifts `Instant` via `shiftDateTime` at UTC **by design** — one path covers every jitter mode, and `shiftInstant` has no `DateField` overload so it cannot serve the within-month / within-year modes. No change needed here; the former workaround is simply the uniform choice.
 - [x] **Invariants & traceability verified** — each mapped to a test:
@@ -205,6 +214,23 @@ opaque-type passthrough audit (`PassthroughAuditE2ETest`).
   - High-cardinality candidate keys transformed via the length-preserving sequence fallback, no collision crash → `TableTransformLoadStageTest` (length-preserving, no overflow across many inputs).
   - Misdeclaration lint per `distinguishingLint` (`OFF` no scan / `WARN` reports / `ERROR` fails; never the gate) → `DistinguishingLintTest`.
   - `AnonymisationReport` DPIA accountability evidence → `DpiaArtifactEmitterTest` (JSON/HTML/Markdown) + the benchmark passthrough-audit assertions.
+- [x] **DPIA report strengthened with salt-mode disclosure and structured findings.**
+  `AnonymisationReport` now carries `saltMode` (SPEC §5.1/§5.2) so a reviewer can see whether a run
+  forfeited irreversibility (`PERSISTENT`/`REPRODUCIBLE`), plus two records promoting what were
+  previously `StageResult` prose strings into queryable evidence: `SurvivalFinding` (§4.3
+  source-value survival, quantified) and `LintFinding` (§4.1 misdeclaration candidates). All three
+  render in every `DpiaArtifactEmitter` format. Covered by `DpiaArtifactEmitterTest` and the
+  benchmark suite's `emitAndVerifyDpiaReport`.
+- [x] **Structural-uniqueness report implemented** (was the one named gap in SPEC §2.4). Opt-in via
+  `structuralUniqueness: REPORT` (default `OFF`) + `structuralRarenessK` (default 5) — a per-FK-edge
+  relational fingerprint: `VerificationStage` groups each child table's FK column(s) by parent key,
+  and reports how many parent rows are singled out by a unique or rare count of referencing
+  children. Never a privacy gate and never a run-abort (no `ERROR` mode) — advisory DPIA evidence
+  only, same footing as the misdeclaration lint (ADR 0003). New `StructuralUniquenessFinding`
+  record (carrying the edge's FK `childColumns` so two FKs between the same table pair stay
+  distinguishable), rendered in every `DpiaArtifactEmitter` format. Covered by
+  `StructuralUniquenessE2ETest` (a distinctive 5-order customer among 20 single-order customers; a
+  second test confirms the scan does not run when left `OFF`). Behaviour contract in SPEC §2.4/§7.
 
 ---
 
@@ -221,13 +247,11 @@ Kept in step with the sibling repos (`../play-bazlang`, `../lib-alterego`); deli
 
 Out of the locked v1.0 scope; recorded so the intent isn't lost, not committed to.
 
-- [ ] **Structural-uniqueness report (DPIA evidence).** SPEC §2.4 names the one residual risk v1.0
-  does not mitigate: row counts and the FK graph are preserved 1:1, so a subject with a distinctive
-  relational fingerprint (e.g. the one entity with 300 linked children) can still be singled out from
-  *structure* even with every field fabricated — and any real value kept on that row is then
-  disclosed. The DPIA artifact should quantify this residual: a per-table structural-uniqueness
-  finding (how many rows have a rare/unique in-degree or child-count fingerprint), so a reviewer sees
-  the exposure instead of having to reason about it unaided. This complements the salt-mode disclosure
-  and the survival/lint findings already emitted (§4.1/§4.3). Design: `docs/tasks/structural-uniqueness.md`.
+- [ ] **Multi-edge structural fingerprints.** The shipped structural-uniqueness report (see Phase 7)
+  scores one FK edge at a time. Combining several edges into one joint fingerprint per subject
+  (e.g. order count *and* address count together) is more faithful to real singling-out but harder
+  to threshold defensibly.
+- [ ] **Attribute + structure combined findings.** A kept `distinguishing: false` value *plus* a
+  rare FK fan-out is a stronger fingerprint than either alone; not modelled today.
 - [ ] **Declarative-partitioning support.** Surfaced by the Pagila benchmark, which excludes the partitioned `payment` table. Today partition children are discovered as plain tables and the partitioned parent isn't specially handled, so a partitioned table can't be cloned coherently. A proper treatment would recognise the parent/child relationship (`pg_partitioned_table`/`pg_inherits`), clone by inserting into the parent (letting Postgres route to partitions), and skip the children — preserving per-partition volumes. Non-partitioned tables are unaffected.
 - [ ] **`RedisKeyTranslationStore` — a persisted, out-of-process key store.** v1.0 uses an in-memory `KeyTranslationStore` only (Redis is an explicit v1.0 non-goal). A persisted store would let key translation outlive a single JVM run — useful for very large clones that don't fit in heap, for resuming an interrupted load, and for cross-run stability of surrogates. **Constraint:** a persisted key store maps source PKs to surrogates and so is itself sensitive — it must be destroyed on successful completion (SPEC §5.3), exactly as the salt is. (A `redis:7-alpine` dev `docker-compose.yml` was removed once v1.0 shipped without it; reinstate a local service definition alongside this work if picked up.)
