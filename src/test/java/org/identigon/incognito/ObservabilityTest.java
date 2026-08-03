@@ -1,5 +1,6 @@
 package org.identigon.incognito;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -79,5 +80,38 @@ class ObservabilityTest {
         assertTrue(message.contains(sqlState), "warning includes the SQLState for diagnosis: " + message);
         assertFalse(message.contains("hunter2"), "the raw exception message (with secrets) must not be logged: " + message);
         assertFalse(message.contains(secret), "no field/connection detail leaks into the log: " + message);
+    }
+
+    @Test
+    void compensationNeverThrowsOnAMalformedContextAttribute() {
+        // A malformed attribute — the wrong type entirely, simulating a hypothetical future bug
+        // elsewhere in the pipeline that stores something unexpected under this key. This must not
+        // crash compensate() with an uncaught ClassCastException, which would replace/mask the
+        // ORIGINAL pipeline failure that triggered this compensation call in the first place.
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("incognito.schema.executionPlan", "not a TopologicalExecutionPlan");
+        PipelineContext ctx = new DefaultPipelineContext(null, null, null, null, null, null, attrs);
+
+        Logger jul = Logger.getLogger(IncognitoCleanUpHandler.class.getName());
+        List<LogRecord> captured = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override public void publish(LogRecord r) { captured.add(r); }
+            @Override public void flush() {}
+            @Override public void close() {}
+        };
+        Level previous = jul.getLevel();
+        jul.setLevel(Level.ALL);
+        jul.addHandler(handler);
+        try {
+            assertDoesNotThrow(() -> IncognitoCleanUpHandler.compensate(ctx),
+                "compensate() must be best-effort and never throw, even on an internal bug");
+        } finally {
+            jul.removeHandler(handler);
+            jul.setLevel(previous);
+        }
+
+        boolean warningLogged = captured.stream()
+            .anyMatch(r -> r.getLevel().intValue() >= Level.WARNING.intValue());
+        assertTrue(warningLogged, "an unexpected compensation failure must still be logged as a WARNING");
     }
 }

@@ -91,21 +91,31 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
         if (policy == null) {
             throw new IncognitoException.ConfigException("an AnonymisationPolicy is required");
         }
-        if (saltMode == null) {
-            saltMode = SaltMode.EPHEMERAL; // default: fresh secret salt per run
-        }
+        SaltMode resolvedSaltMode = saltMode != null ? saltMode : SaltMode.EPHEMERAL; // default
 
-        if (saltMode == SaltMode.EPHEMERAL) {
-            byte[] ephemeral = new byte[32];
-            new java.security.SecureRandom().nextBytes(ephemeral);
-            this.salt = ephemeral;
-        }
+        // Computed fresh into a LOCAL array on every build() call — never mutates `this.salt`/
+        // `this.saltMode` — so calling build() more than once on the same builder (PERSISTENT or
+        // REPRODUCIBLE mode; a builder is not documented as single-use) hands each resulting
+        // pipeline its own independent salt array. Without this, both pipelines would share one
+        // mutable byte[]; whichever finishes first zeroes it (SPEC §5.1) out from under the other.
+        byte[] effectiveSalt = switch (resolvedSaltMode) {
+            case EPHEMERAL -> {
+                byte[] ephemeral = new byte[32];
+                new java.security.SecureRandom().nextBytes(ephemeral);
+                yield ephemeral;
+            }
+            case PERSISTENT -> this.salt == null ? null : this.salt.clone();
+            // The seed is mixed into the salt actually handed to AlterEgo: two `reproducible` calls
+            // with the same salt but different seeds must (per SPEC §5.2) produce different, but
+            // each individually reproducible, output — AlterEgo itself has no separate seed concept.
+            case REPRODUCIBLE -> this.salt == null ? null : deriveReproducibleSalt(this.salt, this.seed);
+        };
 
         org.identigon.alterego.store.MappingStore alterEgoStore =
             new org.identigon.alterego.store.InMemoryMappingStore();
 
         org.identigon.alterego.AlterEgo alterEgo = org.identigon.alterego.AlterEgo.builder()
-            .salt(this.salt)
+            .salt(effectiveSalt)
             .locale(this.locale)
             .rawMappingKeys(false)
             .mappingStore(alterEgoStore)
@@ -130,7 +140,25 @@ final class IncognitoPipelineBuilder implements IncognitoPipeline.Builder {
                       new org.identigon.incognito.core.VerificationStage())
             : stages;
 
-        return new org.identigon.incognito.core.DefaultIncognitoPipeline(context, resolvedStages, this.salt);
+        return new org.identigon.incognito.core.DefaultIncognitoPipeline(context, resolvedStages, effectiveSalt);
+    }
+
+    /**
+     * Derives the salt actually used for a {@code reproducible(salt, seed)} run: {@code
+     * SHA-256(salt || seed)}. Deterministic in {@code (salt, seed)} — same inputs always yield the
+     * same output — so a fixed salt and seed remain byte-for-byte reproducible across runs, while
+     * varying the seed alone (holding salt fixed) varies the fabricated output, matching SPEC §5.2.
+     * Package-private (not private) so a unit test can exercise it directly, without a live database.
+     */
+    static byte[] deriveReproducibleSalt(byte[] salt, long seed) {
+        try {
+            java.security.MessageDigest sha256 = java.security.MessageDigest.getInstance("SHA-256");
+            sha256.update(salt);
+            sha256.update(java.nio.ByteBuffer.allocate(Long.BYTES).putLong(seed).array());
+            return sha256.digest();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     // The three salt modes are mutually exclusive (SPEC §5.1).

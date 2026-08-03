@@ -85,20 +85,33 @@ public final class BulkDatabaseLoadStage implements AutoCloseable {
 
     @Override
     public void close() throws SQLException {
+        // Every step below must still be attempted even if an earlier one fails (matching the
+        // original nested try/finally), but the FIRST failure — typically the most actionable one,
+        // e.g. a batch constraint violation — must remain primary. A plain try/finally would let a
+        // later failure (e.g. closing an already-broken statement) silently replace it; chaining
+        // every subsequent failure as suppressed keeps all of them visible instead.
+        SQLException primary = null;
         try {
             if (batchCount > 0) {
                 insertStmt.executeBatch();
             }
-        } finally {
-            try {
-                insertStmt.close();
-            } finally {
-                dialect.postLoadTable(targetConn, tableName);
-                if (pkColumn != null) {
-                    dialect.resyncSequence(targetConn, tableName, pkColumn);
-                }
-            }
+        } catch (SQLException e) {
+            primary = e;
         }
+        try {
+            insertStmt.close();
+        } catch (SQLException e) {
+            if (primary == null) primary = e; else primary.addSuppressed(e);
+        }
+        try {
+            dialect.postLoadTable(targetConn, tableName);
+            if (pkColumn != null) {
+                dialect.resyncSequence(targetConn, tableName, pkColumn);
+            }
+        } catch (SQLException e) {
+            if (primary == null) primary = e; else primary.addSuppressed(e);
+        }
+        if (primary != null) throw primary;
     }
 
     /**

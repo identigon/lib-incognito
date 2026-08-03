@@ -1,6 +1,7 @@
 package org.identigon.incognito.core;
 
 import java.util.List;
+import java.util.Optional;
 import org.identigon.incognito.api.ColumnRole;
 import org.identigon.incognito.api.IncognitoException;
 import org.identigon.incognito.api.PipelineContext;
@@ -25,7 +26,14 @@ public final class SchemaDiscoveryStage implements PipelineStage {
     /** Key used to store the topological execution plan in the pipeline context attributes. */
     public static final String ATTR_EXECUTION_PLAN = "incognito.schema.executionPlan";
 
-    /** Key used to store the auto-inference role suggestions in the pipeline context attributes. */
+    /**
+     * Key used to store the auto-inference role suggestions in the pipeline context attributes.
+     * <b>Note:</b> since an unclassified column always aborts the run ({@code ConfigException},
+     * SPEC §7.2), this map is only ever stored on a fully-successful validation pass — where, by
+     * definition, every column was already classified and there was nothing to suggest. Genuinely
+     * populated suggestions currently only ever reach the thrown exception's message, listing
+     * every unclassified column in a table at once, not a returned {@code AnonymisationReport}.
+     */
     public static final String ATTR_INFER_SUGGESTIONS = "incognito.schema.inferSuggestions";
 
     private final SchemaInspector schemaInspector;
@@ -91,6 +99,12 @@ public final class SchemaDiscoveryStage implements PipelineStage {
             java.util.Map<String, java.util.List<org.identigon.incognito.api.AnonymisationReport.InferSuggestion>> allSuggestions) {
 
         java.util.List<org.identigon.incognito.api.AnonymisationReport.InferSuggestion> tableSuggestions = new java.util.ArrayList<>();
+        // Collected across the WHOLE table rather than thrown on the first hit, so one run reports
+        // every unclassified column at once instead of the user fixing them one at a time across
+        // repeated runs. (This still always aborts the run — auto-infer only suggests, never
+        // assigns, SPEC §7.2; it does not make suggestions reach a *returned* report, since a
+        // fail-closed run never returns one — see ATTR_INFER_SUGGESTIONS's Javadoc.)
+        java.util.List<String> unclassifiedMessages = new java.util.ArrayList<>();
 
         for (String column : table.columns()) {
             // Skip generated columns — they are excluded from INSERT and need no classification.
@@ -98,7 +112,12 @@ public final class SchemaDiscoveryStage implements PipelineStage {
                 continue;
             }
 
-            if (tablePolicy.column(column).isEmpty()) {
+            Optional<ColumnPolicy> declared = tablePolicy.column(column);
+            // A column entirely absent from the policy, AND a column present but with no `role`
+            // key (ColumnPolicy.role() == null — never defaulted, see ColumnPolicy.Builder) are
+            // both "unclassified": both must fail closed identically. Checking Optional.isEmpty()
+            // alone would silently miss the latter, since a ColumnPolicy still exists for it.
+            if (declared.isEmpty() || declared.get().role() == null) {
                 // Auto-inference only SUGGESTS a role; it never silently assigns one, so an
                 // unclassified column ALWAYS fails-closed (SPEC §7.2) — it must never pass through
                 // as real data. With autoInfer on, the suggestion is added to the message to help.
@@ -106,12 +125,11 @@ public final class SchemaDiscoveryStage implements PipelineStage {
                 String hint = inferred
                     .map(r -> " (auto-infer suggests " + r.role() + " via " + r.heuristic() + ")")
                     .orElse("");
-                throw new IncognitoException.ConfigException(
-                    "Fail-closed: column '" + column + "' in table '" + table.tableName()
-                        + "' has no declared ColumnRole in the policy" + hint
-                        + ". Classify it explicitly — auto-infer only suggests, never assigns.");
+                unclassifiedMessages.add("'" + column + "'" + hint);
+                inferred.ifPresent(r -> tableSuggestions.add(
+                    new org.identigon.incognito.api.AnonymisationReport.InferSuggestion(column, r.role(), r.heuristic())));
             } else {
-                ColumnPolicy colPol = tablePolicy.column(column).get();
+                ColumnPolicy colPol = declared.get();
                 if (colPol.role() == ColumnRole.SENSITIVE) {
                     if (colPol.distinguishing() == null) {
                         throw new IncognitoException.ConfigException(
@@ -127,5 +145,13 @@ public final class SchemaDiscoveryStage implements PipelineStage {
             }
         }
         allSuggestions.put(table.tableName(), tableSuggestions);
+
+        if (!unclassifiedMessages.isEmpty()) {
+            throw new IncognitoException.ConfigException(
+                "Fail-closed: table '" + table.tableName() + "' has " + unclassifiedMessages.size()
+                    + " unclassified column(s) with no declared ColumnRole in the policy: "
+                    + String.join(", ", unclassifiedMessages)
+                    + ". Classify each explicitly — auto-infer only suggests, never assigns.");
+        }
     }
 }

@@ -39,12 +39,26 @@ public final class IncognitoCleanUpHandler {
 
     /**
      * Compensates a failed run: re-enables triggers, truncates partially loaded tables, and resyncs
-     * sequences. Best-effort.
+     * sequences. Best-effort — guaranteed never to throw, so it can never replace/mask the original
+     * failure that triggered it (its caller is inside that failure's {@code catch} block, with no
+     * surrounding try/catch of its own).
      *
      * @param context the pipeline context of the failed run
      */
-    @SuppressWarnings("unchecked")
     public static void compensate(PipelineContext context) {
+        try {
+            doCompensate(context);
+        } catch (RuntimeException e) {
+            // e.g. a ClassCastException from an unexpectedly-typed context attribute — never let an
+            // internal compensation bug propagate and hide the real pipeline failure that called us.
+            LOG.log(System.Logger.Level.WARNING,
+                "compensation failed unexpectedly ({0}); target may be left inconsistent",
+                e.toString());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void doCompensate(PipelineContext context) {
         Object planObj = context.attributes().get("incognito.schema.executionPlan");
         if (planObj == null) return;
         TableDependencyGraph.TopologicalExecutionPlan plan =

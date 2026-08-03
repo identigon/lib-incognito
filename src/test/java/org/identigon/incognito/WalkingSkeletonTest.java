@@ -274,6 +274,36 @@ class WalkingSkeletonTest {
             "Should fail with ConfigException when a column has no declared role");
     }
 
+    @Test
+    void failClosedOnColumnPresentButMissingRoleKey() {
+        Assumptions.assumeTrue(sourceDs != null, "Docker/PostgreSQL not available");
+
+        // 'status' is present in the policy (unlike the sibling test above, where it's entirely
+        // absent) but its ColumnPolicy carries no role — e.g. a policy author who declared a
+        // strategy but forgot the `role:` key. This must fail exactly like the entirely-absent
+        // case, not silently default to PAYLOAD (kept real) — see ColumnPolicy.Builder.
+        AnonymisationPolicy incompletePolicy = AnonymisationPolicy.builder()
+            .table("users", t -> t
+                .column("id", ColumnRole.PRIMARY_KEY, SurrogateStrategy.SEQUENTIAL_LONG)
+                .column("email", ColumnRole.DIRECT_ID, DirectIdStrategy.ALTEREGO_EMAIL)
+                .column("dob", ColumnRole.QUASI_ID, QuasiIdStrategy.SYNTHESISE)
+                .column("status", ColumnPolicy.builder("status"))) // no .role(...) call
+            .build();
+
+        assertThrows(IncognitoException.ConfigException.class, () ->
+            IncognitoPipeline.builder()
+                .source(sourceDs)
+                .target(targetDs)
+                .ephemeralSalt()
+                .policy(incompletePolicy)
+                .stage(new SchemaDiscoveryStage())
+                .stage(new TableTransformLoadStage())
+                .build()
+                .execute(),
+            "A column present in the policy but with no declared role must fail-closed, not "
+                + "silently default to PAYLOAD");
+    }
+
     // --- Helpers ---
 
     private long countRows(Connection conn, String table) throws SQLException {

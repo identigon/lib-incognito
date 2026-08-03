@@ -15,7 +15,8 @@ import org.identigon.incognito.api.SurrogateStrategy;
  * {@code referenced*} for {@code FOREIGN_KEY}; {@code derivedFrom*} for {@code INHERITED_ATTRIBUTE}.
  *
  * @param columnName the column name
- * @param role the column's {@link ColumnRole}
+ * @param role the column's {@link ColumnRole}; {@code null} if not yet declared — a policy author
+ *     omitting the {@code role} key is fail-closed (SPEC §7.2), not defaulted to {@code PAYLOAD}
  * @param surrogateStrategy how a {@code PRIMARY_KEY} is surrogated
  * @param directIdStrategy how a {@code DIRECT_ID}/{@code UNIQUE_CANDIDATE_KEY} is fabricated
  * @param quasiIdStrategy how a {@code QUASI_ID} is jittered/synthesised
@@ -44,13 +45,16 @@ public record ColumnPolicy(
     String derivedFromColumn
 ) {
     /**
-     * Validates required fields.
+     * Validates required fields. {@code role} is deliberately NOT validated here — a {@code null}
+     * role means "not yet declared", a distinct, legitimate state that
+     * {@code SchemaDiscoveryStage} must detect and fail closed on with a specific, actionable
+     * message (SPEC §7.2); rejecting it here instead would only produce a generic parse-failure
+     * exception with no column/table context.
      *
-     * @throws NullPointerException if {@code columnName} or {@code role} is null
+     * @throws NullPointerException if {@code columnName} is null
      */
     public ColumnPolicy {
         Objects.requireNonNull(columnName, "columnName cannot be null");
-        Objects.requireNonNull(role, "role cannot be null");
     }
 
     /**
@@ -66,7 +70,7 @@ public record ColumnPolicy(
     /** Fluent builder for a {@link ColumnPolicy}. */
     public static class Builder {
         private final String columnName;
-        private ColumnRole role = ColumnRole.PAYLOAD;
+        private ColumnRole role;
         private SurrogateStrategy surrogateStrategy = SurrogateStrategy.SEQUENTIAL_LONG;
         private DirectIdStrategy directIdStrategy;
         private QuasiIdStrategy quasiIdStrategy;

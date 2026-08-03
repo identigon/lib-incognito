@@ -20,6 +20,9 @@ public final class PostgresDialectHandler implements DialectHandler {
     /** Creates a PostgreSQL dialect handler. */
     public PostgresDialectHandler() {}
 
+    /** PostgreSQL SQLSTATE for "insufficient privilege" — the specific, expected non-superuser failure. */
+    private static final String SQLSTATE_INSUFFICIENT_PRIVILEGE = "42501";
+
     @Override
     public void preLoadTable(Connection targetConn, String tableName) throws SQLException {
         try (Statement stmt = targetConn.createStatement()) {
@@ -32,11 +35,23 @@ public final class PostgresDialectHandler implements DialectHandler {
             if (!targetConn.getAutoCommit()) {
                 targetConn.rollback();
             }
+            // Only fall back for the specific "insufficient privilege" failure a non-superuser gets.
+            // Any other SQLState (a dead connection, an unrelated error) is a genuinely different
+            // problem that owner-mode DISABLE TRIGGER cannot fix — reinterpreting it as "must be
+            // non-superuser" would hide the real cause, so rethrow it unchanged instead.
+            if (!SQLSTATE_INSUFFICIENT_PRIVILEGE.equals(e.getSQLState())) {
+                throw e;
+            }
             LOG.log(System.Logger.Level.DEBUG,
                 "session_replication_role unavailable (SQLState {0}); falling back to owner-mode DISABLE TRIGGER on {1}",
                 e.getSQLState(), tableName);
             try (Statement stmt = targetConn.createStatement()) {
                 stmt.execute("ALTER TABLE " + tableName + " DISABLE TRIGGER USER");
+            } catch (SQLException fallbackFailure) {
+                // Keep the original cause visible rather than letting the fallback's own failure
+                // silently replace it — whoever debugs this needs both.
+                fallbackFailure.addSuppressed(e);
+                throw fallbackFailure;
             }
         }
     }
@@ -121,7 +136,7 @@ public final class PostgresDialectHandler implements DialectHandler {
         // constraint in place so nothing is silently lost.
         runInTransaction(targetConn, stmt -> {
             for (DroppedForeignKey fk : captured) {
-                stmt.execute("ALTER TABLE " + fk.tableName() + " DROP CONSTRAINT " + quoteIdent(fk.constraintName()));
+                stmt.execute("ALTER TABLE " + quoteIdent(fk.tableName()) + " DROP CONSTRAINT " + quoteIdent(fk.constraintName()));
             }
         });
         return captured;
@@ -131,7 +146,7 @@ public final class PostgresDialectHandler implements DialectHandler {
     public void recreateForeignKeys(Connection targetConn, List<DroppedForeignKey> dropped) throws SQLException {
         runInTransaction(targetConn, stmt -> {
             for (DroppedForeignKey fk : dropped) {
-                stmt.execute("ALTER TABLE " + fk.tableName() + " ADD CONSTRAINT "
+                stmt.execute("ALTER TABLE " + quoteIdent(fk.tableName()) + " ADD CONSTRAINT "
                     + quoteIdent(fk.constraintName()) + " " + fk.definition());
             }
         });

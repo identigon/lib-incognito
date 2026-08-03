@@ -276,7 +276,14 @@ public final class TableTransformLoadStage implements PipelineStage {
                                 }
 
                                 // Publish the fabricated value for descendants to inherit (SPEC §6.1).
-                                if (!columnsToPublish.isEmpty() && sourcePk != null && columnsToPublish.contains(colName)) {
+                                // A null value is not published — the store (a ConcurrentHashMap)
+                                // rejects null values outright, and there is no way today to record
+                                // "published, and it's genuinely null" distinctly from "never
+                                // published". A descendant reading this attribute therefore sees the
+                                // same ConstraintException as a genuine ordering/config error, rather
+                                // than crashing the whole load with an uncaught NullPointerException.
+                                if (!columnsToPublish.isEmpty() && sourcePk != null && columnsToPublish.contains(colName)
+                                        && transformedValue != null) {
                                     context.cascadeStore().put(tableName, sourcePk, colName, transformedValue);
                                 }
 
@@ -424,13 +431,28 @@ public final class TableTransformLoadStage implements PipelineStage {
         }
         int thisIdx = orderedChildCols.indexOf(columnName);
 
+        // A composite FK that doesn't cover every column of the parent's actual PK is a schema/config
+        // problem, not a per-row data condition — `orderedChildCols` would carry a permanent `null`
+        // at the uncovered position for every row of this table. Fail loud here, once, rather than
+        // silently returning each row's real, untranslated FK value forever (SPEC §7.2 fail-closed).
+        if (orderedChildCols.contains(null)) {
+            throw new IncognitoException.ConstraintException(
+                "Composite FK on '" + tableMeta.tableName() + "' referencing table '" + parentTable
+                    + "' does not cover every column of the parent's primary key " + parentPk
+                    + " — composite + partial FKs are not supported (SPEC §5.2).");
+        }
+
         return (value, rs, pk, sqlType, counter, ctx, meta) -> {
             if (value == null) return null;
             Object[] lookupVals = new Object[orderedChildCols.size()];
             for (int i = 0; i < orderedChildCols.size(); i++) {
                 String c = orderedChildCols.get(i);
-                lookupVals[i] = (c == null) ? null : rs.getObject(c);
-                if (lookupVals[i] == null) return value; // incomplete composite FK — leave as-is
+                lookupVals[i] = rs.getObject(c);
+                // A sibling FK column is null on THIS row even though the whole composite FK is
+                // schema-complete (checked above) — a partial-null composite FK value (valid under
+                // SQL's default MATCH SIMPLE semantics). Leave this column's own value as-is; it is
+                // not a surrogate-translatable reference if its siblings aren't all present either.
+                if (lookupVals[i] == null) return value;
             }
             org.identigon.incognito.api.CompositeKey lookup =
                 new org.identigon.incognito.api.CompositeKey(lookupVals);

@@ -87,6 +87,27 @@ class YamlConfigTest {
     }
 
     @Test
+    void columnMissingRoleKeyParsesWithNullRoleNotPayloadDefault() {
+        // A column entry present under `columns:` but missing the `role:` key (e.g. a policy
+        // author who declared a strategy but forgot the role) must NOT silently resolve to
+        // ColumnRole.PAYLOAD — SchemaDiscoveryStage relies on role() staying null to fail closed.
+        String yamlString = """
+            tables:
+              customers:
+                columns:
+                  ssn:
+                    directIdStrategy: ALTEREGO_GENERIC
+            """;
+
+        InputStream inputStream = new ByteArrayInputStream(yamlString.getBytes(StandardCharsets.UTF_8));
+        AnonymisationPolicy policy = new YamlPolicyParser().parse(inputStream);
+
+        ColumnPolicy ssnCol = policy.table("customers").orElseThrow().column("ssn").orElseThrow();
+        assertNull(ssnCol.role(), "a column missing the role: key must parse with a null role, "
+            + "never default to PAYLOAD");
+    }
+
+    @Test
     void testParseEmptyConfig() {
         String yamlString = "";
 
