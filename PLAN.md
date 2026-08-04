@@ -242,6 +242,13 @@ Kept in step with the sibling repos (`../play-bazlang`, `../lib-alterego`); deli
 - [x] **pre-commit / prek hooks** (`.pre-commit-config.yaml`) — `spotlessApply` + `compile` (local Gradle), the native hygiene hooks (trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files), and **gitleaks** secret-scanning. SpotBugs and the test suite are omitted (too slow for a commit hook).
 - [x] **SpotBugs + find-sec-bugs** (CI, `ignoreFailures = false`) — the security-focused follow-up. The first run will flag the ~18 SQL-by-string-concatenation sites (catalog identifiers, not user input); resolve by quoting the identifiers or a justified `config/spotbugs/exclude.xml`. Versions to match `../play-bazlang`: spotbugs plugin 6.5.9, tool 4.9.8.
 - [ ] Optional / consistency-only: PMD (bug-focused; prefer over Checkstyle, which duplicates the `Xdoclint:all` gate) and JaCoCo (a coverage metric — the suite is already thorough by design).
+- [ ] **DpiaArtifactEmitter refactor** — replace the hand-concatenated JSON with a small internal
+  `JsonWriter` (kills the manual comma/brace bookkeeping the `count('{')==count('}')` test guards
+  against) and lift the HTML/Markdown scaffolding into Java text blocks. Behaviour-preserving,
+  zero new dependencies. Mechanical handoff in `docs/tasks/dpia-emitter-refactor.md`; §7 there also
+  scopes a further follow-on — 3 illustrative sample rows per table (generated from AlterEgo with a
+  fixed non-secret salt, so synthetic and drift-free) to show a reader what the data looks like
+  after transformation.
 
 ## Post-v1.0 — possible future directions
 
